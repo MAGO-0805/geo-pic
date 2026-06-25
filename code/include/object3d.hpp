@@ -18,6 +18,14 @@ public:
 
     // Intersect Ray with this object. If hit, store information in hit structure.
     virtual bool intersect(const Ray &r, Hit &h, float tmin) = 0;
+
+    // NEE 表面采样: 返回面积 PDF，设 point 和 normal
+    virtual float sampleSurface(float r1, float r2, Vector3f &point, Vector3f &normal) const { return 0; }
+
+    virtual float getArea() const { return 0; }
+
+    Material *getMaterial() const { return material; }
+
 protected:
 
     Material *material;

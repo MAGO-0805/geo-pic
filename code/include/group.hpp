@@ -41,9 +41,9 @@ public:
         objects.insert(objects.begin() + index, obj);
     }
 
-    int getGroupSize() {
-        return objects.size();
-    }
+    int getGroupSize() { return objects.size(); }
+
+    Object3D *getChild(int i) { return objects[i]; }
 
 private:
     std::vector<Object3D*> objects;

@@ -2,6 +2,7 @@
 #define SCENE_PARSER_H
 
 #include <cassert>
+#include <vector>
 #include <vecmath.h>
 
 class Camera;
@@ -55,12 +56,15 @@ public:
         return group;
     }
 
+    const std::vector<Object3D *> &getEmissives() const { return emissives; }
+
 private:
 
     void parseFile();
     void parsePerspectiveCamera();
     void parseBackground();
     void parseLights();
+    void collectEmissives(Object3D *obj);
     Light *parsePointLight();
     Light *parseDirectionalLight();
     void parseMaterials();
@@ -93,6 +97,7 @@ private:
     Material **materials;
     Material *current_material;
     Group *group;
+    std::vector<Object3D *> emissives;
 };
 
 #endif // SCENE_PARSER_H

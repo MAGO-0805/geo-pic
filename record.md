@@ -96,3 +96,39 @@ RefractiveMaterial {
 1. 同一场景渲染两张，`fresnel on` vs 不写，对比玻璃球反射强弱
 2. 玻璃球 (IOR=1.5) 与水球 (IOR=1.33) 并排，全反射临界角不同：`θc = arcsin(1/ior)`，IOR 越大越容易全反射，球体内部可见明亮反射区域
 3. 掠射角观察：球形边缘入射角接近 90°，`cosθ→0`，`Fr→1`，球体边缘呈现镜面反射
+
+## NEE (Next Event Estimation)
+
+核心思路：路径追踪靠 BRDF 随机采样「碰运气」击中光源，收敛极慢。NEE 在每个散射路径顶点**主动对所有发光体采样一点**，直接计算光源对该点的贡献，不再依赖概率命中。BRDF 弹射仅负责间接光照，击中发光体时不再重复累加。
+
+**表面采样接口**（`object3d.hpp` + 各几何类）。为 `Object3D` 新增虚函数 `sampleSurface(r1, r2) → (point, normal, pdf_area)`：
+- `Sphere`：球面均匀采样，`pdf = 1/(4πr²)`
+- `Triangle`：重心坐标均匀采样，`pdf = 1/面积`
+- `Mesh`：按面积 CDF 选三角形后 delegate，`pdf = 1/总面积`
+- `Transform`：采样子对象，将局部点/法线变换到世界空间
+
+**固体角转换**。发光体采样得到的是面积 PDF，需转为固体角 PDF 才与 BRDF 采样 PDF 单位一致：`pdf_ω = pdf_A × dist² / cosθ_light`。
+
+**MIS 权重**。NEE 侧和 BRDF 弹射侧使用相同的幂启发式权重函数，对称组合：
+- NEE 侧：`w_light = pdf_light² / (pdf_light² + pdf_brdf²)`，累加 `emission × brdf × w_light / pdf_light`
+- BRDF 侧：当前非 delta 顶点的 BRDF 弹射若下一跳击中发光体，计算 `w_brdf = pdf_brdf² / (pdf_light² + pdf_brdf²)`，累加 `emission × brdf × w_brdf / pdf_brdf`
+
+实现中保存上一非 delta 顶点的 `hitPoint`、`wo`、`N`、`BRDF*` 和 `throughput`（BRDF 采样前），在下一跳命中发光体时回推 `pdf_light`（通过 `emissive->getArea()` 获取面积 PDF 并固体角转换）。delta 顶点跳过 MIS（其 BRDF 为 Dirac delta，pdf_brdf 对任意有限方向为 0）。
+
+**可见性**。NEE 采样出光源点后发射 Shadow Ray，若在到达光源前击中其他物体则跳过。与 Whitted 的 Shadow Ray 逻辑相同，只是方向由采样决定而非固定指向光源中心。
+
+**路径循环改动**（`main.cpp`）。非 delta 顶点在 BRDF 采样前遍历发光体执行 NEE，MIS 加权的 radiance 直接累加；BRDF 弹射的次级光线击中发光体时不再简单丢弃，改为计算 BRDF 侧 MIS 后累加。delta 顶点将 `prevBRDF` 置空以避免错误 MIS。
+
+**发射体收集**（`scene_parser.cpp`）。解析完成后递归遍历 Group/Transform 树，将 `isEmissive()` 返回 true 的对象指针收集到 `emissives` 向量供渲染循环使用。
+
+**涉及文件**：
+| 文件 | 改动 |
+|------|------|
+| `include/object3d.hpp` | 新增虚函数 `sampleSurface()`, `getArea()` |
+| `include/sphere.hpp` | 球面均匀采样实现 |
+| `include/triangle.hpp` | 三角形重心坐标采样实现 |
+| `include/mesh.hpp` | 面积 CDF + 三角 delegate, const operator[] |
+| `include/transform.hpp` | 空间变换 delegate, `getChild()` |
+| `include/group.hpp` | `getChild(i)` |
+| `include/scene_parser.hpp/cpp` | 发射体收集 + `getEmissives()` |
+| `src/main.cpp` | NEE 循环 + MIS + 可见性 + 次级发光休止 |

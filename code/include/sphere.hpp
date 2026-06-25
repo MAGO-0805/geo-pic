@@ -64,6 +64,19 @@ public:
         return true;
     }
 
+    float sampleSurface(float r1, float r2, Vector3f &point, Vector3f &normal) const override {
+        // 均匀采样球面
+        float phi = 2.0f * M_PI * r1;
+        float cosTheta = 1.0f - 2.0f * r2;
+        float sinTheta = sqrt(std::max(0.0f, 1.0f - cosTheta * cosTheta));
+        Vector3f dir(sinTheta * cos(phi), sinTheta * sin(phi), cosTheta);
+        point = center + dir * radius;
+        normal = dir;
+        return 1.0f / (4.0f * M_PI * radius * radius);
+    }
+
+    float getArea() const override { return 4.0f * M_PI * radius * radius; }
+
 protected:
     Vector3f center;
     float radius;

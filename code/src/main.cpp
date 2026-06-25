@@ -5,6 +5,7 @@
 #include <cmath>
 #include <iostream>
 #include <random>
+#include <vector>
 
 #include "scene_parser.hpp"
 #include "image.hpp"
@@ -18,7 +19,7 @@
 using namespace std;
 
 // === 路径追踪参数 ===
-const int SAMPLES = 128;
+const int SAMPLES = 100;
 const int MAX_DEPTH = 10;
 const int RR_DEPTH = 3;
 const float EPSILON = 0.001f;
@@ -85,11 +86,17 @@ Vector3f traceWhitted(const Ray &ray, float tmin, Group *scene, SceneParser &par
 }
 
 // === 路径追踪 ===
-Vector3f tracePath(const Ray &firstRay, Group *scene, const Vector3f &bgColor) {
+Vector3f tracePath(const Ray &firstRay, Group *scene, const Vector3f &bgColor,
+                   const vector<Object3D *> &emissives) {
     Vector3f radiance(0, 0, 0);
     Vector3f throughput(1, 1, 1);
     Ray ray = firstRay;
     float currentIOR = AIR_IOR;
+
+    // 上一非 delta 顶点信息，用于 BRDF 击中光源时的 MIS
+    Vector3f prevHitPoint, prevWo, prevN;
+    BRDF *prevBRDF = nullptr;
+    Vector3f prevThroughput(0, 0, 0);
 
     for (int depth = 0; depth < MAX_DEPTH; depth++) {
         if (depth > RR_DEPTH) {
@@ -109,8 +116,34 @@ Vector3f tracePath(const Ray &firstRay, Group *scene, const Vector3f &bgColor) {
         Vector3f N = hit.getNormal().normalized();
         Vector3f wo = -ray.getDirection().normalized();
 
+        // 击中发光体
         if (mat->isEmissive()) {
-            radiance += throughput * mat->getEmission();
+            if (depth == 0) {
+                radiance += throughput * mat->getEmission();
+            } else if (prevBRDF) {
+                // BRDF 弹射侧 MIS
+                Vector3f wi_local = ray.getDirection().normalized();
+                float pdf_brdf = prevBRDF->pdf(prevWo, wi_local, prevN);
+                Vector3f brdf_val = prevBRDF->eval(prevWo, wi_local, prevN);
+
+                float pdf_light = 0;
+                for (Object3D *em : emissives) {
+                    if (em->getMaterial() == mat) {
+                        float area = em->getArea();
+                        if (area > 0) {
+                            float dist2 = (hitPoint - prevHitPoint).squaredLength();
+                            float cosLight = max(0.0f, Vector3f::dot(N, -wi_local));
+                            if (cosLight > 0)
+                                pdf_light = (1.0f / area) * dist2 / cosLight;
+                        }
+                        break;
+                    }
+                }
+
+                float mis_w = (pdf_brdf * pdf_brdf) / max(1e-6f, pdf_brdf * pdf_brdf + pdf_light * pdf_light);
+                if (pdf_brdf > 1e-8f)
+                    radiance += prevThroughput * mat->getEmission() * brdf_val * mis_w / pdf_brdf;
+            }
             break;
         }
 
@@ -119,12 +152,11 @@ Vector3f tracePath(const Ray &firstRay, Group *scene, const Vector3f &bgColor) {
         float pdf, nextIOR;
 
         if (brdf->isDelta()) {
+            prevBRDF = nullptr; // delta 顶点不参与 MIS
             wi = brdf->sampleDelta(wo, N, currentIOR, nextIOR);
             throughput = throughput * brdf->deltaThroughput();
 
-            // 菲涅尔: 折射材质按反射率随机改为反射
             if (mat->hasFresnel() && nextIOR != currentIOR) {
-                // nextIOR != currentIOR → 非全反射（成功折射），才可能部分反射
                 float cosI = fabs(Vector3f::dot(wo, N));
                 float R0 = (mat->getRefractiveIndex() - 1.0f) * (mat->getRefractiveIndex() - 1.0f) /
                            ((mat->getRefractiveIndex() + 1.0f) * (mat->getRefractiveIndex() + 1.0f));
@@ -132,10 +164,44 @@ Vector3f tracePath(const Ray &firstRay, Group *scene, const Vector3f &bgColor) {
                 if (randf() < Fr) {
                     Vector3f I = -wo;
                     wi = (I - 2.0f * Vector3f::dot(N, I) * N).normalized();
-                    nextIOR = currentIOR; // 反射，介质不变
+                    nextIOR = currentIOR;
                 }
             }
         } else {
+            // 保存上一顶点信息（NEE 之前）
+            prevHitPoint = hitPoint;
+            prevWo = wo;
+            prevN = N;
+            prevBRDF = brdf;
+            prevThroughput = throughput;
+
+            // NEE: 对每个发光体采样
+            for (Object3D *emissive : emissives) {
+                Vector3f lp, ln;
+                float pdf_area = emissive->sampleSurface(randf(), randf(), lp, ln);
+                if (pdf_area <= 0) continue;
+
+                Vector3f lwi = (lp - hitPoint).normalized();
+                float dist2 = (lp - hitPoint).squaredLength();
+                float cosLight = max(0.0f, Vector3f::dot(ln, -lwi));
+                if (cosLight <= 0) continue;
+
+                float pdf_w = pdf_area * dist2 / cosLight;
+                float cosRay = max(0.0f, Vector3f::dot(N, lwi));
+                if (cosRay <= 0) continue;
+
+                Ray sray(hitPoint, lwi);
+                Hit sh;
+                float maxT = sqrt(dist2);
+                if (scene->intersect(sray, sh, EPSILON) && sh.getT() < maxT - EPSILON)
+                    continue;
+
+                Vector3f brdf_val = brdf->eval(wo, lwi, N);
+                float pdf_brdf = brdf->pdf(wo, lwi, N);
+                float mis_w = (pdf_w * pdf_w) / (pdf_w * pdf_w + pdf_brdf * pdf_brdf + 1e-6f);
+                radiance += throughput * emissive->getMaterial()->getEmission() * brdf_val * mis_w / pdf_w;
+            }
+
             brdf->sample(wo, N, randf(), randf(), wi, pdf);
             if (pdf < 1e-6f) break;
             throughput = throughput * brdf->eval(wo, wi, N) / pdf;
@@ -176,7 +242,7 @@ int main(int argc, char *argv[]) {
                 Vector3f color(0, 0, 0);
                 for (int s = 0; s < SAMPLES; s++) {
                     float jx = randf() - 0.5f, jy = randf() - 0.5f;
-                    color += tracePath(camera->generateRay(Vector2f(x + jx, y + jy)), scene, bg);
+                    color += tracePath(camera->generateRay(Vector2f(x + jx, y + jy)), scene, bg, parser.getEmissives());
                 }
                 outputImage.SetPixel(x, y, color / SAMPLES);
             }

@@ -36,6 +36,18 @@ public:
         return inter;
     }
 
+    float sampleSurface(float r1, float r2, Vector3f &point, Vector3f &n) const override {
+        float pdf = o->sampleSurface(r1, r2, point, n);
+        // transform 存储的是逆矩阵, transform.inverse() = 原始正向矩阵
+        point = transformPoint(transform.inverse(), point);
+        n = transformDirection(transform.transposed(), n).normalized();
+        return pdf;
+    }
+
+    float getArea() const override { return o->getArea(); }  // 近似（均匀缩放时才准确）
+
+    Object3D *getChild() const { return o; }
+
 protected:
     Object3D *o; //un-transformed object
     Matrix4f transform;

@@ -89,6 +89,7 @@ void SceneParser::parseFile() {
             parseMaterials();
         } else if (!strcmp(token, "Group")) {
             group = parseGroup();
+            collectEmissives(group);
         } else {
             printf("Unknown token in parseFile: '%s'\n", token);
             exit(0);
@@ -602,9 +603,16 @@ float SceneParser::readFloat() {
 int SceneParser::readInt() {
     int answer;
     int count = fscanf(file, "%d", &answer);
-    if (count != 1) {
-        printf("Error trying to read 1 int\n");
-        assert (0);
-    }
+    if (count != 1) { printf("Error trying to read 1 int\n"); assert(0); }
     return answer;
+}
+
+void SceneParser::collectEmissives(Object3D *obj) {
+    if (!obj) return;
+    if (obj->getMaterial() && obj->getMaterial()->isEmissive())
+        emissives.push_back(obj);
+    if (auto *g = dynamic_cast<Group *>(obj))
+        for (int i = 0; i < g->getGroupSize(); i++) collectEmissives(g->getChild(i));
+    if (auto *t = dynamic_cast<Transform *>(obj))
+        collectEmissives(t->getChild());
 }

@@ -24,9 +24,9 @@ Materials {
         shininess 5
     }
     GlossyMaterial {
-        diffuseColor 0.7 0.15 0.15
-        specularColor 0.05 0.05 0.05
-        roughness 0.3
+        diffuseColor 0.005 0.002 0.002
+        specularColor 0.95 0.5 0.35
+        roughness 0.5
     }
     GlossyMaterial {
         diffuseColor 0.05 0.05 0.06

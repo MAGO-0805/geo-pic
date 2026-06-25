@@ -47,6 +47,21 @@ public:
         }
         return false;
 	}
+
+    float sampleSurface(float r1, float r2, Vector3f &point, Vector3f &n) const override {
+        float sr1 = sqrt(r1);
+        float u = 1.0f - sr1;
+        float v = r2 * sr1;
+        point = vertices[0] + u * (vertices[1] - vertices[0]) + v * (vertices[2] - vertices[0]);
+        n = normal;
+        return 1.0f / getArea();
+    }
+
+    float getArea() const override {
+        Vector3f e1 = vertices[1] - vertices[0];
+        Vector3f e2 = vertices[2] - vertices[0];
+        return Vector3f::cross(e1, e2).length() * 0.5f;
+    }
 	Vector3f normal;
 	Vector3f vertices[3];
 // protected:
