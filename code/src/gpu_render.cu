@@ -64,15 +64,12 @@ GPUScene flattenScene(SceneParser &parser, Group *rootGroup) {
         int matId = mat ? matMap[mat] : -1;
 
         if (auto *g = dynamic_cast<Group *>(obj)) {
-            cout << "  Group: " << g->getGroupSize() << " children" << endl;
             for (int i = 0; i < g->getGroupSize(); i++)
                 flatten(g->getChild(i), accInv);
         } else if (auto *t = dynamic_cast<Transform *>(obj)) {
-            cout << "  Transform" << endl;
             flatten(t->getChild(), t->getTransformInv() * accInv);
         } else if (auto *s = dynamic_cast<Sphere *>(obj)) {
             if (matId < 0) return;
-            cout << "  Sphere mat=" << matId << endl;
             GPUSphere gs;
             Vector3f c = s->getCenter();
             float r = s->getRadius();
