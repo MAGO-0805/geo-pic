@@ -92,4 +92,16 @@ void Mesh::computeNormal() {
         b = Vector3f::cross(a, b);
         n[triId] = b / b.length();
     }
+    // compute per-vertex normals by averaging adjacent face normals
+    vn.resize(v.size(), Vector3f::ZERO);
+    for (int triId = 0; triId < (int) t.size(); ++triId) {
+        TriangleIndex& triIndex = t[triId];
+        for (int j = 0; j < 3; ++j) {
+            vn[triIndex[j]] += n[triId];
+        }
+    }
+    for (auto &vn_i : vn) {
+        float len = vn_i.length();
+        if (len > 1e-6f) vn_i = vn_i / len;
+    }
 }

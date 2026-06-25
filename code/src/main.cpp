@@ -29,6 +29,7 @@ struct Config {
     std::string direct_lighting = "mis";
     bool use_omp = true;
     bool use_cuda = false;
+    bool use_smooth_shading = true;
 };
 
 Config loadConfig(const char *path) {
@@ -53,12 +54,13 @@ Config loadConfig(const char *path) {
         if (key == "use_path_tracing") cfg.use_path_tracing = (val == "true");
         if (key == "use_omp") cfg.use_omp = (val == "true");
         if (key == "use_cuda") cfg.use_cuda = (val == "true");
+        if (key == "use_smooth_shading") cfg.use_smooth_shading = (val == "true");
     }
     return cfg;
 }
 
 // === 路径追踪参数 ===
-const int SAMPLES = 100;
+const int SAMPLES = 200;
 const int MAX_DEPTH = 10;
 const int RR_DEPTH = 3;
 const float EPSILON = 0.001f;
@@ -297,7 +299,7 @@ int main(int argc, char *argv[]) {
             cout << "GPU Path Tracing " << w << "x" << h << " with " << SAMPLES << " spp..." << endl;
             GPUScene gpuScene = flattenScene(parser, scene);
             float *pixels = new float[w * h * 3];
-            gpuRender(gpuScene, pixels, SAMPLES, cfg.direct_lighting.c_str());
+            gpuRender(gpuScene, pixels, SAMPLES, cfg.direct_lighting.c_str(), cfg.use_smooth_shading);
             for (int y = 0; y < h; y++)
                 for (int x = 0; x < w; x++) {
                     int i = (y * w + x) * 3;

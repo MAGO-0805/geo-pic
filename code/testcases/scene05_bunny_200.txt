@@ -4,42 +4,42 @@ PerspectiveCamera {
     direction -0.5 -0.5 -1
     up 0 1 0
     angle 25
-    width 200
-    height 200
+    width 1024
+    height 1024
 }
 
 Lights {
-    numLights 2
-    DirectionalLight {
-        direction 0.2 -1 -0.4
-	color 0.7 0.7 0.7
-    }
-    DirectionalLight {
-        direction -7 -5 -5
-	color 0.3 0.3 0.3
-    }
+    numLights 0
 }
 
 Background {
-    color 0.1 0.7 0.2
+    color 0 0 0
 }
 
 Materials {
-    numMaterials 1
-    PhongMaterial {	
-        diffuseColor 0.79 0.66 0.44
-	specularColor 1 1 1 
-	shininess 20
-
+    numMaterials 2
+    Material {
+        diffuseColor 0.62 0.14 0.14
+        specularColor 0.08 0.08 0.08
+        shininess 5
+    }
+	EmissiveMaterial {
+        emissionColor 30 24 18
     }
 }
 
 Group {
-    numObjects 1
+    numObjects 2
 
     MaterialIndex 0
     TriangleMesh {
         obj_file mesh/bunny_200.obj
     }
+	MaterialIndex 1
+    Sphere {
+        center 0.35 0.6 -0.4
+        radius 0.4
+    }
+
 }
 

@@ -91,9 +91,14 @@ GPUScene flattenScene(SceneParser &parser, Group *rootGroup) {
             gt.v0x = v0.x(); gt.v0y = v0.y(); gt.v0z = v0.z();
             gt.v1x = v1.x(); gt.v1y = v1.y(); gt.v1z = v1.z();
             gt.v2x = v2.x(); gt.v2y = v2.y(); gt.v2z = v2.z();
+            Vector3f fn = Vector3f::cross(v1-v0, v2-v0).normalized();
+            gt.n0x = fn.x(); gt.n0y = fn.y(); gt.n0z = fn.z();
+            gt.n1x = fn.x(); gt.n1y = fn.y(); gt.n1z = fn.z();
+            gt.n2x = fn.x(); gt.n2y = fn.y(); gt.n2z = fn.z();
             gt.mat_id = matId;
             out.triangles.push_back(gt);
         } else if (auto *mesh = dynamic_cast<Mesh *>(obj)) {
+            Matrix4f normalMat = accInv.transposed();
             for (size_t i = 0; i < mesh->t.size(); i++) {
                 GPUTriangle gt;
                 Vector3f v0 = transformPoint(accInv.inverse(), mesh->v[mesh->t[i][0]]);
@@ -102,6 +107,12 @@ GPUScene flattenScene(SceneParser &parser, Group *rootGroup) {
                 gt.v0x = v0.x(); gt.v0y = v0.y(); gt.v0z = v0.z();
                 gt.v1x = v1.x(); gt.v1y = v1.y(); gt.v1z = v1.z();
                 gt.v2x = v2.x(); gt.v2y = v2.y(); gt.v2z = v2.z();
+                Vector3f vn0 = (normalMat * Vector4f(mesh->vn[mesh->t[i][0]], 0)).xyz().normalized();
+                Vector3f vn1 = (normalMat * Vector4f(mesh->vn[mesh->t[i][1]], 0)).xyz().normalized();
+                Vector3f vn2 = (normalMat * Vector4f(mesh->vn[mesh->t[i][2]], 0)).xyz().normalized();
+                gt.n0x = vn0.x(); gt.n0y = vn0.y(); gt.n0z = vn0.z();
+                gt.n1x = vn1.x(); gt.n1y = vn1.y(); gt.n1z = vn1.z();
+                gt.n2x = vn2.x(); gt.n2y = vn2.y(); gt.n2z = vn2.z();
                 gt.mat_id = matId;
                 out.triangles.push_back(gt);
             }
@@ -120,12 +131,32 @@ GPUScene flattenScene(SceneParser &parser, Group *rootGroup) {
             float S = 20.0f;
             Vector3f v[4] = { p0+(-t1-t2)*S, p0+(t1-t2)*S, p0+(t1+t2)*S, p0+(-t1+t2)*S };
             GPUTriangle gt1, gt2;
-            gt1.v0x=v[0].x();gt1.v0y=v[0].y();gt1.v0z=v[0].z();
-            gt1.v1x=v[1].x();gt1.v1y=v[1].y();gt1.v1z=v[1].z();
-            gt1.v2x=v[2].x();gt1.v2y=v[2].y();gt1.v2z=v[2].z(); gt1.mat_id=matId;
-            gt2.v0x=v[0].x();gt2.v0y=v[0].y();gt2.v0z=v[0].z();
-            gt2.v1x=v[2].x();gt2.v1y=v[2].y();gt2.v1z=v[2].z();
-            gt2.v2x=v[3].x();gt2.v2y=v[3].y();gt2.v2z=v[3].z(); gt2.mat_id=matId;
+            // gt1: v[0],v[1],v[2]; gt2: v[0],v[2],v[3]
+            // 确保几何面法向量与 plane normal 同向（否则交换顶点翻转）
+            if (Vector3f::dot(Vector3f::cross(v[1]-v[0], v[2]-v[0]), n) >= 0) {
+                gt1.v0x=v[0].x();gt1.v0y=v[0].y();gt1.v0z=v[0].z();
+                gt1.v1x=v[1].x();gt1.v1y=v[1].y();gt1.v1z=v[1].z();
+                gt1.v2x=v[2].x();gt1.v2y=v[2].y();gt1.v2z=v[2].z();
+            } else {
+                gt1.v0x=v[0].x();gt1.v0y=v[0].y();gt1.v0z=v[0].z();
+                gt1.v1x=v[2].x();gt1.v1y=v[2].y();gt1.v1z=v[2].z();
+                gt1.v2x=v[1].x();gt1.v2y=v[1].y();gt1.v2z=v[1].z();
+            }
+            gt1.n0x=n.x();gt1.n0y=n.y();gt1.n0z=n.z();
+            gt1.n1x=n.x();gt1.n1y=n.y();gt1.n1z=n.z();
+            gt1.n2x=n.x();gt1.n2y=n.y();gt1.n2z=n.z(); gt1.mat_id=matId;
+            if (Vector3f::dot(Vector3f::cross(v[2]-v[0], v[3]-v[0]), n) >= 0) {
+                gt2.v0x=v[0].x();gt2.v0y=v[0].y();gt2.v0z=v[0].z();
+                gt2.v1x=v[2].x();gt2.v1y=v[2].y();gt2.v1z=v[2].z();
+                gt2.v2x=v[3].x();gt2.v2y=v[3].y();gt2.v2z=v[3].z();
+            } else {
+                gt2.v0x=v[0].x();gt2.v0y=v[0].y();gt2.v0z=v[0].z();
+                gt2.v1x=v[3].x();gt2.v1y=v[3].y();gt2.v1z=v[3].z();
+                gt2.v2x=v[2].x();gt2.v2y=v[2].y();gt2.v2z=v[2].z();
+            }
+            gt2.n0x=n.x();gt2.n0y=n.y();gt2.n0z=n.z();
+            gt2.n1x=n.x();gt2.n1y=n.y();gt2.n1z=n.z();
+            gt2.n2x=n.x();gt2.n2y=n.y();gt2.n2z=n.z(); gt2.mat_id=matId;
             out.triangles.push_back(gt1);
             out.triangles.push_back(gt2);
         }
@@ -183,7 +214,8 @@ __device__ bool gpu_intersect_sphere(
 __device__ bool gpu_intersect_triangle(
     float ox,float oy,float oz,float dx,float dy,float dz,
     float v0x,float v0y,float v0z,float v1x,float v1y,float v1z,float v2x,float v2y,float v2z,
-    float tmin,float &t,float &nx,float &ny,float &nz) {
+    float n0x,float n0y,float n0z,float n1x,float n1y,float n1z,float n2x,float n2y,float n2z,
+    float tmin,float &t,float &nx,float &ny,float &nz, int useSmooth) {
     float e1x=v0x-v1x,e1y=v0y-v1y,e1z=v0z-v1z;
     float e2x=v0x-v2x,e2y=v0y-v2y,e2z=v0z-v2z;
     float sx=v0x-ox,sy=v0y-oy,sz=v0z-oz;
@@ -195,10 +227,22 @@ __device__ bool gpu_intersect_triangle(
     float gamma=(dx*(e1y*sz-e1z*sy)+dy*(e1z*sx-e1x*sz)+dz*(e1x*sy-e1y*sx))*invDet;
     if(tt>tmin&&tt<t&&beta>=0&&gamma>=0&&beta+gamma<=1){
         t=tt;
-        float cx=e1y*e2z-e1z*e2y,cy=e1z*e2x-e1x*e2z,cz=e1x*e2y-e1y*e2x;
-        float len=sqrtf(cx*cx+cy*cy+cz*cz);
-        nx=cx/len;ny=cy/len;nz=cz/len;
-        if(dx*nx+dy*ny+dz*nz>0){nx=-nx;ny=-ny;nz=-nz;}
+        // 几何面法向量（顶点顺序已在 flattenScene 确保与顶点法向量同向）
+        float fnx=e1y*e2z-e1z*e2y,fny=e1z*e2x-e1x*e2z,fnz=e1x*e2y-e1y*e2x;
+        float fnlen=sqrtf(fnx*fnx+fny*fny+fnz*fnz);
+        fnx/=fnlen;fny/=fnlen;fnz/=fnlen;
+        if (useSmooth) {
+            float alpha = 1.0f - beta - gamma;
+            nx = alpha*n0x + beta*n1x + gamma*n2x;
+            ny = alpha*n0y + beta*n1y + gamma*n2y;
+            nz = alpha*n0z + beta*n1z + gamma*n2z;
+        } else {
+            nx=fnx;ny=fny;nz=fnz;
+        }
+        float len=sqrtf(nx*nx+ny*ny+nz*nz);
+        nx/=len;ny/=len;nz/=len;
+        // 用几何面法向量判断翻转（与面几何一致，不受插值偏移影响）
+        if(dx*fnx+dy*fny+dz*fnz>0){nx=-nx;ny=-ny;nz=-nz;}
         return true;
     }
     return false;
@@ -207,7 +251,7 @@ __device__ bool gpu_intersect_triangle(
 __device__ bool gpu_scene_intersect(
     const GPUSphere*spheres,int nS,const GPUTriangle*tris,int nT,
     float ox,float oy,float oz,float dx,float dy,float dz,
-    float tmin,float &t,float &nx,float &ny,float &nz,int &mid) {
+    float tmin,float &t,float &nx,float &ny,float &nz,int &mid, int useSmooth) {
     bool hit=false;t=1e38f;
     for(int i=0;i<nS;i++){
         float hnx,hny,hnz;
@@ -216,7 +260,9 @@ __device__ bool gpu_scene_intersect(
     }
     for(int i=0;i<nT;i++){
         const GPUTriangle&tr=tris[i];float hnx,hny,hnz;
-        if(gpu_intersect_triangle(ox,oy,oz,dx,dy,dz,tr.v0x,tr.v0y,tr.v0z,tr.v1x,tr.v1y,tr.v1z,tr.v2x,tr.v2y,tr.v2z,tmin,t,hnx,hny,hnz))
+        if(gpu_intersect_triangle(ox,oy,oz,dx,dy,dz,tr.v0x,tr.v0y,tr.v0z,tr.v1x,tr.v1y,tr.v1z,tr.v2x,tr.v2y,tr.v2z,
+            tr.n0x,tr.n0y,tr.n0z,tr.n1x,tr.n1y,tr.n1z,tr.n2x,tr.n2y,tr.n2z,
+            tmin,t,hnx,hny,hnz, useSmooth))
             {nx=hnx;ny=hny;nz=hnz;mid=tr.mat_id;hit=true;}
     }
     return hit;
@@ -316,7 +362,7 @@ __global__ void path_trace_kernel(
     const GPUMaterial *materials,
     int nEmissives, const int *emissiveIndices,
     GPUCamera cam, float bg_r, float bg_g, float bg_b,
-    float *output, int samples, int mode)  // 0=brdf, 1=mis, 2=nee
+    float *output, int samples, int mode, int useSmooth)  // 0=brdf, 1=mis, 2=nee
 {
     int px = blockIdx.x * blockDim.x + threadIdx.x;
     int py = blockIdx.y * blockDim.y + threadIdx.y;
@@ -351,7 +397,7 @@ __global__ void path_trace_kernel(
             }
 
             float t, nx, ny, nz; int mid;
-            if (!gpu_scene_intersect(spheres,nSpheres,tris,nTris,o.x,o.y,o.z,d.x,d.y,d.z,EPS_GPU,t,nx,ny,nz,mid)) {
+            if (!gpu_scene_intersect(spheres,nSpheres,tris,nTris,o.x,o.y,o.z,d.x,d.y,d.z,EPS_GPU,t,nx,ny,nz,mid,useSmooth)) {
                 rsum+=thr.x*bg_r; gsum+=thr.y*bg_g; bsum+=thr.z*bg_b; break;
             }
 
@@ -430,7 +476,7 @@ __global__ void path_trace_kernel(
                     // shadow ray
                     float st, snx,sny,snz; int smid;
                     float maxT = sqrtf(dist2);
-                    if (gpu_scene_intersect(spheres,nSpheres,tris,nTris,hp.x,hp.y,hp.z,lwi.x,lwi.y,lwi.z,EPS_GPU,st,snx,sny,snz,smid)) {
+                    if (gpu_scene_intersect(spheres,nSpheres,tris,nTris,hp.x,hp.y,hp.z,lwi.x,lwi.y,lwi.z,EPS_GPU,st,snx,sny,snz,smid,useSmooth)) {
                         if (materials[smid].type != GPU_EMISSIVE) continue;
                     }
                     // eval BRDF
@@ -533,11 +579,12 @@ __global__ void path_trace_kernel(
 }
 
 // ============ 主机渲染入口 ============
-void gpuRender(const GPUScene &scene, float *output, int samples, const char *mode) {
+void gpuRender(const GPUScene &scene, float *output, int samples, const char *mode, bool smoothShading) {
     int w = scene.cam.w, h = scene.cam.h;
     int modeInt = (strcmp(mode, "brdf") == 0) ? 0 : (strcmp(mode, "nee") == 0) ? 2 : 1;
+    int sm = smoothShading ? 1 : 0;
     cout << "GPU: " << scene.spheres.size() << " spheres, " << scene.triangles.size()
-         << " triangles, mode=" << mode << endl;
+         << " triangles, mode=" << mode << (smoothShading ? " smooth" : " flat") << endl;
 
     // 收集发光体编号
     vector<int> emissiveIndices;
@@ -579,7 +626,7 @@ void gpuRender(const GPUScene &scene, float *output, int samples, const char *mo
         d_mats, nEm, d_emIdx,
         scene.cam,
         scene.bg_r, scene.bg_g, scene.bg_b,
-        d_output, samples, modeInt);
+        d_output, samples, modeInt, sm);
 
     err = cudaGetLastError();
     if (err != cudaSuccess) cout << "Kernel launch: " << cudaGetErrorString(err) << endl;

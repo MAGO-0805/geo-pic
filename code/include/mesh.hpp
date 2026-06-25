@@ -25,7 +25,8 @@ public:
 
     std::vector<Vector3f> v;
     std::vector<TriangleIndex> t;
-    std::vector<Vector3f> n;
+    std::vector<Vector3f> n;    // face normals
+    std::vector<Vector3f> vn;   // per-vertex normals (for smooth shading)
     bool intersect(const Ray &r, Hit &h, float tmin) override;
 
     float sampleSurface(float r1, float r2, Vector3f &point, Vector3f &normal) const override {

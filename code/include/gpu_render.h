@@ -14,6 +14,9 @@ struct GPUTriangle {
     float v0x, v0y, v0z;
     float v1x, v1y, v1z;
     float v2x, v2y, v2z;
+    float n0x, n0y, n0z;  // per-vertex normals for smooth shading
+    float n1x, n1y, n1z;
+    float n2x, n2y, n2z;
     int mat_id;
 };
 
@@ -52,6 +55,6 @@ struct GPUScene {
 GPUScene flattenScene(class SceneParser &parser, class Group *group);
 
 // GPU 渲染入口，mode = "mis" / "brdf" / "nee"
-void gpuRender(const GPUScene &scene, float *output, int samples, const char *mode);
+void gpuRender(const GPUScene &scene, float *output, int samples, const char *mode, bool smoothShading);
 
 #endif
