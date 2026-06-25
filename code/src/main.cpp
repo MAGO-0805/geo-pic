@@ -121,6 +121,20 @@ Vector3f tracePath(const Ray &firstRay, Group *scene, const Vector3f &bgColor) {
         if (brdf->isDelta()) {
             wi = brdf->sampleDelta(wo, N, currentIOR, nextIOR);
             throughput = throughput * brdf->deltaThroughput();
+
+            // 菲涅尔: 折射材质按反射率随机改为反射
+            if (mat->hasFresnel() && nextIOR != currentIOR) {
+                // nextIOR != currentIOR → 非全反射（成功折射），才可能部分反射
+                float cosI = fabs(Vector3f::dot(wo, N));
+                float R0 = (mat->getRefractiveIndex() - 1.0f) * (mat->getRefractiveIndex() - 1.0f) /
+                           ((mat->getRefractiveIndex() + 1.0f) * (mat->getRefractiveIndex() + 1.0f));
+                float Fr = R0 + (1.0f - R0) * pow(1.0f - cosI, 5.0f);
+                if (randf() < Fr) {
+                    Vector3f I = -wo;
+                    wi = (I - 2.0f * Vector3f::dot(N, I) * N).normalized();
+                    nextIOR = currentIOR; // 反射，介质不变
+                }
+            }
         } else {
             brdf->sample(wo, N, randf(), randf(), wi, pdf);
             if (pdf < 1e-6f) break;

@@ -230,6 +230,8 @@ void SceneParser::parseMaterials() {
             materials[count] = parseRefractiveMaterial();
         } else if (!strcmp(token, "EmissiveMaterial")) {
             materials[count] = parseEmissiveMaterial();
+        } else if (!strcmp(token, "GlossyMaterial")) {
+            materials[count] = parseGlossyMaterial();
         } else {
             printf("Unknown token in parseMaterial: '%s'\n", token);
             exit(0);
@@ -290,6 +292,7 @@ Material *SceneParser::parseRefractiveMaterial() {
     char token[MAX_PARSER_TOKEN_LENGTH];
     Vector3f attenuationColor(1, 1, 1);
     float refractiveIndex = 1.5f;
+    bool fresnel = false;
     getToken(token);
     assert (!strcmp(token, "{"));
     while (true) {
@@ -298,12 +301,17 @@ Material *SceneParser::parseRefractiveMaterial() {
             refractiveIndex = readFloat();
         } else if (!strcmp(token, "attenuationColor")) {
             attenuationColor = readVector3f();
+        } else if (!strcmp(token, "fresnel")) {
+            getToken(token);
+            fresnel = !strcmp(token, "on");
         } else {
             assert (!strcmp(token, "}"));
             break;
         }
     }
-    return new Material(REFRACTIVE, refractiveIndex, attenuationColor);
+    auto *m = new Material(REFRACTIVE, refractiveIndex, attenuationColor);
+    if (fresnel) m->setFresnel(true);
+    return m;
 }
 
 Material *SceneParser::parseEmissiveMaterial() {
@@ -321,6 +329,28 @@ Material *SceneParser::parseEmissiveMaterial() {
         }
     }
     return new Material(EMISSIVE, emissionColor, Vector3f::ZERO);
+}
+
+Material *SceneParser::parseGlossyMaterial() {
+    char token[MAX_PARSER_TOKEN_LENGTH];
+    Vector3f diffuseColor(1, 1, 1), specularColor(1, 1, 1);
+    float roughness = 0.3f;
+    getToken(token);
+    assert (!strcmp(token, "{"));
+    while (true) {
+        getToken(token);
+        if (!strcmp(token, "diffuseColor")) {
+            diffuseColor = readVector3f();
+        } else if (!strcmp(token, "specularColor")) {
+            specularColor = readVector3f();
+        } else if (!strcmp(token, "roughness")) {
+            roughness = readFloat();
+        } else {
+            assert (!strcmp(token, "}"));
+            break;
+        }
+    }
+    return new Material(GLOSSY, diffuseColor, specularColor, roughness);
 }
 
 // ====================================================================

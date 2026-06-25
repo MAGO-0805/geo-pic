@@ -10,7 +10,7 @@
 #include "brdf.hpp"
 #include <iostream>
 
-enum MaterialType { PHONG, REFLECTIVE, REFRACTIVE, EMISSIVE };
+enum MaterialType { PHONG, REFLECTIVE, REFRACTIVE, EMISSIVE, GLOSSY };
 
 class Material {
 public:
@@ -46,6 +46,15 @@ public:
         assert(t == EMISSIVE);
     }
 
+    // GLOSSY
+    Material(MaterialType t, const Vector3f &kd, const Vector3f &F0, float roughness) :
+            type(GLOSSY), brdf(new GlossyBRDF(kd, F0, roughness)),
+            diffuseColor(kd), specularColor(F0), shininess(0),
+            attenuationColor(Vector3f::ZERO), refractiveIndex(1.0f),
+            emissionColor(Vector3f::ZERO), emissiveFlag(false), glossyRoughness(roughness) {
+        assert(t == GLOSSY);
+    }
+
     ~Material() { delete brdf; }
 
     MaterialType getType() const { return type; }
@@ -55,6 +64,17 @@ public:
     Vector3f getDiffuseColor() const { return diffuseColor; }
     Vector3f getAttenuationColor() const { return attenuationColor; }
     float getRefractiveIndex() const { return refractiveIndex; }
+    float getRoughness() const { return glossyRoughness; }
+
+    void setFresnel(bool v) {
+        if (auto *st = dynamic_cast<SpecularTransmissionBRDF *>(brdf))
+            st->setFresnel(v);
+    }
+    bool hasFresnel() const {
+        if (auto *st = dynamic_cast<SpecularTransmissionBRDF *>(brdf))
+            return st->hasFresnel();
+        return false;
+    }
 
     static Vector3f reflectDirection(const Vector3f &I, const Vector3f &N) {
         return (I - 2.0f * Vector3f::dot(N, I) * N).normalized();
@@ -87,6 +107,7 @@ private:
     float shininess;
     Vector3f attenuationColor;
     float refractiveIndex;
+    float glossyRoughness;
     Vector3f emissionColor;
     bool emissiveFlag;
 };
