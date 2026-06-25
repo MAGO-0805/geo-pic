@@ -6,7 +6,7 @@
 
 ## Whitted-Style 光线追踪
 
-核心思路：在 PA1 光线投射基础上，将像素着色逻辑从「单次求交 + Phong 本地光照」扩展为「递归追踪 + 全局光照」。不同材质类型的表面在击中后采取不同行为——漫反射面终止递归并计算 Phong 着色，镜面/透明面则计算反射/折射方向后继续追踪，直至击中漫反射面或离开场景。
+核心思想：光线碰到什么材质就做什么事——漫反射的停、镜面的接着反射、透明的接着折射，每条光线在场景中弹跳直到碰到漫反射或飞出场景。
 
 **材质系统**（`material.hpp`）。原有 `Material` 类仅支持 Phong 参数，现新增 `MaterialType` 枚举区分 PHONG、REFLECTIVE、REFRACTIVE 三种类型。反射材质存储 `attenuationColor`（每次递归乘一次衰减），折射材质额外存储 `refractiveIndex`。反射/折射方向的计算采用标准向量公式，折射需额外检查全反射条件。`PHONG` 构造器签名不变，保证旧场景文件直接兼容。
 
@@ -18,7 +18,7 @@
 
 ## 路径追踪
 
-核心思路：Whitted 的 Phong 着色对漫反射面做了「只弹一次就停」的简化，路径追踪则让漫反射面也继续弹射，用蒙特卡洛法估计渲染方程的半球积分。光线只在击中发光体时获得 radiance，途中每次弹射按 BRDF/PDF 更新 throughput。无限递归用俄罗斯轮盘赌截断。
+核心思想：不让光线在漫反射面上停下来，而是让它随机继续弹跳，用大量随机样本去"猜"每个像素到底该多亮——猜得越多越接近真实。
 
 **BRDF 采样接口**（`material.hpp`）。在 `Material` 类上新增三个方法，为后续 glossy BRDF 和 NEE 预留扩展点：
 - `sampleBRDF(wo, N, r1, r2) → (wi, pdf)`：重要性采样。PHONG 类型使用余弦加权半球采样，反射/折射属于 delta 分布直接返回 false。
@@ -48,7 +48,7 @@
 
 ## BRDF 解耦重构
 
-核心思路：原 Material 类通过 type 枚举 + switch 分支实现不同材质的采样和求值，新增材质需同时改 Material、parser、main 三处。重构后将 BRDF 抽象为独立类层次，Material 只持有 BRDF 指针和 Whitted 所需参数，路径追踪循环仅依赖 BRDF 虚接口。
+核心思想：把材质"能做什么"从"是什么"里拆出来——Material 只管存数据，BRDF 只管算光怎么弹，换一种 BRDF 像换皮肤，渲染循环不动。
 
 **`include/brdf.hpp`** — BRDF 基类声明两套虚接口：非 delta 的 `sample()/eval()/pdf()`，delta 的 `sampleDelta()/deltaThroughput()`。派生类只需覆写对应接口，渲染循环零分支判断：
 
@@ -59,6 +59,8 @@
 路径追踪 delta 分支简化为 `wi = brdf->sampleDelta(...); throughput *= brdf->deltaThroughput()`，非 delta 分支简化为 `brdf->sample(...); throughput *= brdf->eval(...)/pdf`。新增 BRDF 类型只需派生类和 Material 构造器，路径循环不变。
 
 ## Glossy BRDF
+
+核心思想：真实表面既不是纯镜子也不是纯哑光，粗糙度控制镜面反射的模糊程度——想象拉丝金属和抛光金属的区别，同一颜色，一个倒影清晰一个倒影散开。
 
 **`include/brdf.hpp`** — `GlossyBRDF` 继承 `BRDF`，`isDelta()=false`。实现 Cook-Torrance 模型：
 
@@ -78,6 +80,8 @@ GlossyMaterial {
 ```
 
 ## 折射菲涅尔
+
+核心思想：透明物体不只是折射，正面看几乎全透、侧面看几乎全反——车窗从正面看透明，从极斜的角度看变成镜子，菲涅尔公式就是计算这个反射比。
 
 **`include/brdf.hpp`** — `SpecularTransmissionBRDF` 新增 `setFresnel(bool)`。关闭时保持原有纯折射行为。开启后，非全反射时用 Schlick 反射率 `Fr = R0 + (1-R0)(1-cosθ)⁵`（其中 `R0 = ((ior-1)/(ior+1))²`）做俄罗斯轮盘赌：`randf() < Fr` 则走反射，否则走折射。
 
@@ -99,7 +103,7 @@ RefractiveMaterial {
 
 ## NEE (Next Event Estimation)
 
-核心思路：路径追踪靠 BRDF 随机采样「碰运气」击中光源，收敛极慢。NEE 在每个散射路径顶点**主动对所有发光体采样一点**，直接计算光源对该点的贡献，不再依赖概率命中。BRDF 弹射仅负责间接光照，击中发光体时不再重复累加。
+核心思想：路径追踪靠 BRDF 随机弹射"碰运气"击中光源来获得亮度——光源越小，碰中的概率越低，画面就一直噪。NEE 的思路是：每次光线弹到任意一个表面上时，不急着继续随机弹，而是先主动对这场景里每一个发光体采样一个点，从这个表面朝那个点连一条线，检查中间有没有东西挡住——没挡住就直接把光算进去。这样每一跳都有保障地获得直接光照，不再依赖"运气弹中"。
 
 **表面采样接口**（`object3d.hpp` + 各几何类）。为 `Object3D` 新增虚函数 `sampleSurface(r1, r2) → (point, normal, pdf_area)`：
 - `Sphere`：球面均匀采样，`pdf = 1/(4πr²)`
@@ -109,7 +113,8 @@ RefractiveMaterial {
 
 **固体角转换**。发光体采样得到的是面积 PDF，需转为固体角 PDF 才与 BRDF 采样 PDF 单位一致：`pdf_ω = pdf_A × dist² / cosθ_light`。
 
-**MIS 权重**。NEE 侧和 BRDF 弹射侧使用相同的幂启发式权重函数，对称组合：
+**我不理解为什么MIS是一个加分项？NEE只能处理直接光照，必然需要BRDF采样，那就必然需要融合二者呀？**
+**MIS 权重**。核心思想：当你能用多种不同方法采样同一个被积函数时，与其选其中一种，不如把多种方法的估计量加权混合，总能比最差的那路好，且不会比最好的那路差太多。具体：NEE 侧和 BRDF 弹射侧使用相同的幂启发式权重函数，对称组合：
 - NEE 侧：`w_light = pdf_light² / (pdf_light² + pdf_brdf²)`，累加 `emission × brdf × w_light / pdf_light`
 - BRDF 侧：当前非 delta 顶点的 BRDF 弹射若下一跳击中发光体，计算 `w_brdf = pdf_brdf² / (pdf_light² + pdf_brdf²)`，累加 `emission × brdf × w_brdf / pdf_brdf`
 
@@ -132,3 +137,15 @@ RefractiveMaterial {
 | `include/group.hpp` | `getChild(i)` |
 | `include/scene_parser.hpp/cpp` | 发射体收集 + `getEmissives()` |
 | `src/main.cpp` | NEE 循环 + MIS + 可见性 + 次级发光休止 |
+
+## OpenMP 并行加速
+
+核心思想：每个像素的路径追踪互相独立——计算像素 A 不需要等像素 B 的结果。让多个 CPU 核心同时各算各的像素，最后拼成一张图。只要保证随机数不打架，结果和单线程一模一样。
+
+**线程安全 RNG**（`main.cpp`）。原 `randf()` 使用全局 `mt19937`，多线程同时调用会导致数据竞争。改为 `thread_local` 惰性初始化：每个线程首次调用时用原子计数器分配独立种子创建自己的 `mt19937` 实例，之后各线程完全独立。
+
+**并行调度**（`main.cpp`）。像素循环外层加 `#pragma omp parallel for schedule(dynamic) if(cfg.use_omp)`。`schedule(dynamic)` 让快线程多干活，避免因路径深度不均导致的负载倾斜。Path 和 Whitted 两路都覆盖。
+
+**编译**（`CMakeLists.txt`）。`find_package(OpenMP)` 自动检测编译器和链接标志。若机器不支持 OpenMP，pragma 被静默忽略，回退单线程。
+
+**开关**（`config/settings.conf`）。`use_omp = true` 开启，`false` 关闭。关闭时与修改前行为完全一致。

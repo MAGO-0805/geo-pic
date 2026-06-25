@@ -6,6 +6,9 @@
 #include <iostream>
 #include <random>
 #include <vector>
+#include <string>
+#include <fstream>
+#include <atomic>
 
 #include "scene_parser.hpp"
 #include "image.hpp"
@@ -14,9 +17,39 @@
 #include "light.hpp"
 #include "material.hpp"
 
-#include <string>
-
 using namespace std;
+
+// === 配置 ===
+struct Config {
+    bool use_path_tracing = true;
+    bool use_mis = true;
+    bool use_omp = true;
+};
+
+Config loadConfig(const char *path) {
+    Config cfg;
+    ifstream f(path);
+    if (!f.is_open()) return cfg;
+    string line;
+    while (getline(f, line)) {
+        if (line.empty() || line[0] == '#') continue;
+        size_t eq = line.find('=');
+        if (eq == string::npos) continue;
+        string key = line.substr(0, eq);
+        string val = line.substr(eq + 1);
+        // 去掉行内注释
+        size_t comment = val.find('#');
+        if (comment != string::npos) val = val.substr(0, comment);
+        key.erase(0, key.find_first_not_of(" \t"));
+        key.erase(key.find_last_not_of(" \t") + 1);
+        val.erase(0, val.find_first_not_of(" \t"));
+        val.erase(val.find_last_not_of(" \t") + 1);
+        if (key == "use_mis") cfg.use_mis = (val == "true");
+        if (key == "use_path_tracing") cfg.use_path_tracing = (val == "true");
+        if (key == "use_omp") cfg.use_omp = (val == "true");
+    }
+    return cfg;
+}
 
 // === 路径追踪参数 ===
 const int SAMPLES = 100;
@@ -25,10 +58,17 @@ const int RR_DEPTH = 3;
 const float EPSILON = 0.001f;
 const float AIR_IOR = 1.0f;
 
-// === 随机数 ===
-mt19937 rng(42);
-uniform_real_distribution<float> dist(0.0f, 1.0f);
-inline float randf() { return dist(rng); }
+// === 随机数（每线程独立种子） ===
+inline float randf() {
+    static thread_local mt19937 *rng = nullptr;
+    static thread_local uniform_real_distribution<float> *d = nullptr;
+    if (!rng) {
+        static atomic<int> seed{42};
+        rng = new mt19937(seed.fetch_add(100));
+        d = new uniform_real_distribution<float>(0.0f, 1.0f);
+    }
+    return (*d)(*rng);
+}
 
 // === Whitted-Style 递归追踪 ===
 Vector3f traceWhitted(const Ray &ray, float tmin, Group *scene, SceneParser &parser,
@@ -87,7 +127,7 @@ Vector3f traceWhitted(const Ray &ray, float tmin, Group *scene, SceneParser &par
 
 // === 路径追踪 ===
 Vector3f tracePath(const Ray &firstRay, Group *scene, const Vector3f &bgColor,
-                   const vector<Object3D *> &emissives) {
+                   const vector<Object3D *> &emissives, const Config &cfg) {
     Vector3f radiance(0, 0, 0);
     Vector3f throughput(1, 1, 1);
     Ray ray = firstRay;
@@ -118,7 +158,7 @@ Vector3f tracePath(const Ray &firstRay, Group *scene, const Vector3f &bgColor,
 
         // 击中发光体
         if (mat->isEmissive()) {
-            if (depth == 0) {
+            if (depth == 0 || !cfg.use_mis) {
                 radiance += throughput * mat->getEmission();
             } else if (prevBRDF) {
                 // BRDF 弹射侧 MIS
@@ -143,6 +183,9 @@ Vector3f tracePath(const Ray &firstRay, Group *scene, const Vector3f &bgColor,
                 float mis_w = (pdf_brdf * pdf_brdf) / max(1e-6f, pdf_brdf * pdf_brdf + pdf_light * pdf_light);
                 if (pdf_brdf > 1e-8f)
                     radiance += prevThroughput * mat->getEmission() * brdf_val * mis_w / pdf_brdf;
+            } else {
+                // delta 弹射命中光源，方向确定无需 MIS
+                radiance += throughput * mat->getEmission();
             }
             break;
         }
@@ -175,16 +218,17 @@ Vector3f tracePath(const Ray &firstRay, Group *scene, const Vector3f &bgColor,
             prevBRDF = brdf;
             prevThroughput = throughput;
 
-            // NEE: 对每个发光体采样
-            for (Object3D *emissive : emissives) {
+            if (cfg.use_mis) {
+                // NEE: 对每个发光体采样
+                for (Object3D *emissive : emissives) {
                 Vector3f lp, ln;
                 float pdf_area = emissive->sampleSurface(randf(), randf(), lp, ln);
                 if (pdf_area <= 0) continue;
 
                 Vector3f lwi = (lp - hitPoint).normalized();
                 float dist2 = (lp - hitPoint).squaredLength();
-                float cosLight = max(0.0f, Vector3f::dot(ln, -lwi));
-                if (cosLight <= 0) continue;
+                float cosLight = fabs(Vector3f::dot(ln, -lwi));
+                if (cosLight < 1e-6f) continue;
 
                 float pdf_w = pdf_area * dist2 / cosLight;
                 float cosRay = max(0.0f, Vector3f::dot(N, lwi));
@@ -193,14 +237,19 @@ Vector3f tracePath(const Ray &firstRay, Group *scene, const Vector3f &bgColor,
                 Ray sray(hitPoint, lwi);
                 Hit sh;
                 float maxT = sqrt(dist2);
-                if (scene->intersect(sray, sh, EPSILON) && sh.getT() < maxT - EPSILON)
-                    continue;
+                if (scene->intersect(sray, sh, EPSILON)) {
+                    if (sh.getMaterial() != emissive->getMaterial())
+                        continue;                        // 被其他物体遮挡
+                    if (sh.getT() < maxT * 0.99f)
+                        continue;                        // 发光体自身另一面遮挡
+                }
 
                 Vector3f brdf_val = brdf->eval(wo, lwi, N);
                 float pdf_brdf = brdf->pdf(wo, lwi, N);
                 float mis_w = (pdf_w * pdf_w) / (pdf_w * pdf_w + pdf_brdf * pdf_brdf + 1e-6f);
                 radiance += throughput * emissive->getMaterial()->getEmission() * brdf_val * mis_w / pdf_w;
             }
+            } // use_mis
 
             brdf->sample(wo, N, randf(), randf(), wi, pdf);
             if (pdf < 1e-6f) break;
@@ -214,17 +263,17 @@ Vector3f tracePath(const Ray &firstRay, Group *scene, const Vector3f &bgColor,
 }
 
 int main(int argc, char *argv[]) {
-    bool usePathTracing = false;
     string inputFile, outputFile;
 
+    Config cfg = loadConfig("config/settings.conf");
+
     for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "--path") == 0) usePathTracing = true;
-        else if (inputFile.empty()) inputFile = argv[i];
+        if (inputFile.empty()) inputFile = argv[i];
         else outputFile = argv[i];
     }
 
     if (inputFile.empty() || outputFile.empty()) {
-        cout << "Usage: ./PA1 <scene.txt> <output.bmp> [--path]" << endl;
+        cout << "Usage: ./PA1 <scene.txt> <output.bmp>" << endl;
         return 1;
     }
 
@@ -234,15 +283,17 @@ int main(int argc, char *argv[]) {
     int w = camera->getWidth(), h = camera->getHeight();
     Image outputImage(w, h);
 
-    if (usePathTracing) {
+    if (cfg.use_path_tracing) {
         Vector3f bg = parser.getBackgroundColor();
+        cout << "use_mis=" << (cfg.use_mis ? "true" : "false") << endl;
         cout << "Path Tracing " << w << "x" << h << " with " << SAMPLES << " spp...";
+        #pragma omp parallel for schedule(dynamic) if(cfg.use_omp)
         for (int y = 0; y < h; y++) {
             for (int x = 0; x < w; x++) {
                 Vector3f color(0, 0, 0);
                 for (int s = 0; s < SAMPLES; s++) {
                     float jx = randf() - 0.5f, jy = randf() - 0.5f;
-                    color += tracePath(camera->generateRay(Vector2f(x + jx, y + jy)), scene, bg, parser.getEmissives());
+                    color += tracePath(camera->generateRay(Vector2f(x + jx, y + jy)), scene, bg, parser.getEmissives(), cfg);
                 }
                 outputImage.SetPixel(x, y, color / SAMPLES);
             }
@@ -251,6 +302,7 @@ int main(int argc, char *argv[]) {
         cout << " Done!" << endl;
     } else {
         cout << "Whitted-Style " << w << "x" << h << "...";
+        #pragma omp parallel for schedule(dynamic) if(cfg.use_omp)
         for (int y = 0; y < h; y++) {
             for (int x = 0; x < w; x++) {
                 Ray r = camera->generateRay(Vector2f(x, y));
