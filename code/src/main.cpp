@@ -17,6 +17,10 @@
 #include "light.hpp"
 #include "material.hpp"
 
+#ifdef USE_CUDA
+#include "gpu_render.h"
+#endif
+
 using namespace std;
 
 // === 配置 ===
@@ -24,6 +28,7 @@ struct Config {
     bool use_path_tracing = true;
     std::string direct_lighting = "mis";
     bool use_omp = true;
+    bool use_cuda = false;
 };
 
 Config loadConfig(const char *path) {
@@ -47,6 +52,7 @@ Config loadConfig(const char *path) {
         if (key == "direct_lighting") cfg.direct_lighting = val;
         if (key == "use_path_tracing") cfg.use_path_tracing = (val == "true");
         if (key == "use_omp") cfg.use_omp = (val == "true");
+        if (key == "use_cuda") cfg.use_cuda = (val == "true");
     }
     return cfg;
 }
@@ -285,6 +291,25 @@ int main(int argc, char *argv[]) {
 
     if (cfg.use_path_tracing) {
         Vector3f bg = parser.getBackgroundColor();
+
+#ifdef USE_CUDA
+        if (cfg.use_cuda) {
+            cout << "GPU Path Tracing " << w << "x" << h << " with " << SAMPLES << " spp..." << endl;
+            GPUScene gpuScene = flattenScene(parser, scene);
+            float *pixels = new float[w * h * 3];
+            gpuRender(gpuScene, pixels, SAMPLES, cfg.direct_lighting.c_str());
+            for (int y = 0; y < h; y++)
+                for (int x = 0; x < w; x++) {
+                    int i = (y * w + x) * 3;
+                    outputImage.SetPixel(x, y, Vector3f(pixels[i], pixels[i+1], pixels[i+2]));
+                }
+            delete[] pixels;
+            cout << " Done!" << endl;
+            outputImage.SaveBMP(outputFile.c_str());
+            return 0;
+        }
+#endif
+
         cout << "direct_lighting=" << cfg.direct_lighting << endl;
         cout << "Path Tracing " << w << "x" << h << " with " << SAMPLES << " spp...";
         #pragma omp parallel for schedule(dynamic) if(cfg.use_omp)

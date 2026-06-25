@@ -49,6 +49,11 @@ public:
         return false;
     }
 
+    float getArea() const override { return 0; } // 无限平面
+
+    Vector3f getNormal() const { return normal; }
+    float getD() const { return d; }
+
 protected:
     Vector3f normal;
     float d;

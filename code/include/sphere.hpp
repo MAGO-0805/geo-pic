@@ -77,6 +77,9 @@ public:
 
     float getArea() const override { return 4.0f * M_PI * radius * radius; }
 
+    Vector3f getCenter() const { return center; }
+    float getRadius() const { return radius; }
+
 protected:
     Vector3f center;
     float radius;

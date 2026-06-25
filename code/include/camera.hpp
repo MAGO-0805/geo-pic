@@ -26,6 +26,11 @@ public:
     int getWidth() const { return width; }
     int getHeight() const { return height; }
 
+    Vector3f getCenter() const { return center; }
+    Vector3f getDirection() const { return direction; }
+    Vector3f getUp() const { return up; }
+    Vector3f getHorizontal() const { return horizontal; }
+
 protected:
     // Extrinsic parameters
     Vector3f center;
@@ -55,14 +60,13 @@ public:
         // 先计算相机空间下的射线Rc
         Vector3f RcStart = Vector3f(0, 0, 0);
         Vector3f RcDir = Vector3f((point.x() - width / 2.0f) / f_x, (point.y() - height / 2.0f) / f_y, 1).normalized();
-        
-        // 再将Rc转换到世界空间下的Rw
         Vector3f RwStart = center;
         Vector3f RwDir = Matrix3f(horizontal, up, direction) * RcDir;
-
-        // 生成光线
         return Ray(RwStart, RwDir);
     }
+
+    float getFx() const { return f_x; }
+    float getFy() const { return f_y; }
 
 private:
     float angle;

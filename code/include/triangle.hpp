@@ -64,6 +64,7 @@ public:
     }
 	Vector3f normal;
 	Vector3f vertices[3];
+    Vector3f getVertex(int i) const { return vertices[i]; }
 // protected:
 
 };

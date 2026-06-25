@@ -48,6 +48,8 @@ public:
 
     Object3D *getChild() const { return o; }
 
+    Matrix4f getTransformInv() const { return transform; }
+
 protected:
     Object3D *o; //un-transformed object
     Matrix4f transform;
