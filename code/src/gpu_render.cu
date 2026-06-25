@@ -37,6 +37,7 @@ GPUScene flattenScene(SceneParser &parser, Group *rootGroup) {
             gm.atten_b = m->getAttenuationColor().z();
             gm.ior = m->getRefractiveIndex();
             gm.roughness = m->getRoughness();
+            gm.dispersion = m->getDispersion();
             gm.hasFresnel = m->hasFresnel() ? 1 : 0;
             gm.F0_r = gm.F0_g = gm.F0_b = 0;
             if (m->isEmissive()) {
@@ -528,26 +529,49 @@ __global__ void path_trace_kernel(
                 fromDelta = true;
             } else if (mat.type == GPU_REFRACTIVE) {
                 float3 I = d;
-                float eta = (currentIOR == mat.ior) ? (currentIOR/1.0f) : (currentIOR/mat.ior);
-                float nextIOR = (currentIOR == mat.ior) ? 1.0f : mat.ior;
-                float3 T;
-                if (gpu_refract(I, N, eta, T)) {
-                    if (mat.hasFresnel) {
-                        float cosI = fabsf(dot_f3(d, N));
-                        float Fr = gpu_fresnel(cosI, mat.ior);
-                        if (gpu_randf(seed) < Fr) {
-                            wi = gpu_reflect(I, N);
+                if (mat.dispersion > 0.0f && currentIOR == 1.0f) {
+                    // 色散: 随机选 R/G/B, 各 1/3 概率, 波长全程保持
+                    float r = gpu_randf(seed);
+                    int ch;
+                    float wl_ior;
+                    if (r < 1.0f/3.0f)      { ch=0; wl_ior = mat.ior - mat.dispersion*0.5f; }
+                    else if (r < 2.0f/3.0f) { ch=1; wl_ior = mat.ior; }
+                    else                    { ch=2; wl_ior = mat.ior + mat.dispersion*0.5f; }
+                    float eta_d = (currentIOR == wl_ior) ? (currentIOR/1.0f) : (currentIOR/wl_ior);
+                    float3 Td;
+                    if (gpu_refract(I, N, eta_d, Td)) {
+                        wi = Td;
+                        currentIOR = mat.ior;
+                    } else {
+                        wi = gpu_reflect(I, N);
+                    }
+                    float3 atten3 = make_float3_(mat.atten_r*3, mat.atten_g*3, mat.atten_b*3);
+                    if      (ch == 0) thr = thr * make_float3_(atten3.x, 0, 0);
+                    else if (ch == 1) thr = thr * make_float3_(0, atten3.y, 0);
+                    else              thr = thr * make_float3_(0, 0, atten3.z);
+                    fromDelta = true;
+                } else {
+                    float eta = (currentIOR == mat.ior) ? (currentIOR/1.0f) : (currentIOR/mat.ior);
+                    float nextIOR = (currentIOR == mat.ior) ? 1.0f : mat.ior;
+                    float3 T;
+                    if (gpu_refract(I, N, eta, T)) {
+                        if (mat.hasFresnel) {
+                            float cosI = fabsf(dot_f3(d, N));
+                            float Fr = gpu_fresnel(cosI, mat.ior);
+                            if (gpu_randf(seed) < Fr) {
+                                wi = gpu_reflect(I, N);
+                            } else {
+                                wi = T; currentIOR = nextIOR;
+                            }
                         } else {
                             wi = T; currentIOR = nextIOR;
                         }
                     } else {
-                        wi = T; currentIOR = nextIOR;
+                        wi = gpu_reflect(I, N);
                     }
-                } else {
-                    wi = gpu_reflect(I, N);
+                    thr = thr * make_float3_(mat.atten_r, mat.atten_g, mat.atten_b);
+                    fromDelta = true;
                 }
-                thr = thr * make_float3_(mat.atten_r, mat.atten_g, mat.atten_b);
-                fromDelta = true;
             } else if (mat.type == GPU_GLOSSY) {
                 float3 F0 = make_float3_(mat.F0_r, mat.F0_g, mat.F0_b);
                 float3 kd = make_float3_(mat.kd_r, mat.kd_g, mat.kd_b);

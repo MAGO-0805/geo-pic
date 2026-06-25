@@ -64,7 +64,7 @@ Config loadConfig(const char *path) {
 }
 
 // === 路径追踪参数 ===
-const int SAMPLES = 200;
+const int SAMPLES = 10000;
 const int MAX_DEPTH = 10;
 const int RR_DEPTH = 3;
 const float EPSILON = 0.001f;
@@ -213,10 +213,33 @@ Vector3f tracePath(const Ray &firstRay, Group *scene, const Vector3f &bgColor,
 
         if (brdf->isDelta()) {
             prevBRDF = nullptr; // delta 顶点不参与 MIS
-            wi = brdf->sampleDelta(wo, N, currentIOR, nextIOR);
-            throughput = throughput * brdf->deltaThroughput();
+            float disp = mat->getDispersion();
+            if (disp > 0.0f && mat->getType() == REFRACTIVE && currentIOR == AIR_IOR) {
+                // 色散: 随机选 R/G/B, 各 1/3 概率, 波长全程保持
+                float r = randf();
+                int ch;
+                float wl_ior;
+                if (r < 1.0f/3.0f)      { ch=0; wl_ior = mat->getRefractiveIndex() - disp*0.5f; }
+                else if (r < 2.0f/3.0f) { ch=1; wl_ior = mat->getRefractiveIndex(); }
+                else                    { ch=2; wl_ior = mat->getRefractiveIndex() + disp*0.5f; }
+                float eta = (currentIOR == wl_ior) ? (currentIOR/AIR_IOR) : (currentIOR/wl_ior);
+                nextIOR = mat->getRefractiveIndex();
+                Vector3f I = ray.getDirection().normalized();
+                Vector3f T;
+                if (Material::refractDirection(I, N, eta, T))
+                    wi = T;
+                else
+                    wi = Material::reflectDirection(I, N);
+                Vector3f atten3 = mat->getAttenuationColor() * 3.0f;
+                if      (ch == 0) throughput = throughput * Vector3f(atten3.x(), 0, 0);
+                else if (ch == 1) throughput = throughput * Vector3f(0, atten3.y(), 0);
+                else              throughput = throughput * Vector3f(0, 0, atten3.z());
+            } else {
+                wi = brdf->sampleDelta(wo, N, currentIOR, nextIOR);
+                throughput = throughput * brdf->deltaThroughput();
+            }
 
-            if (mat->hasFresnel() && nextIOR != currentIOR) {
+            if (!disp && mat->hasFresnel() && nextIOR != currentIOR) {
                 float cosI = fabs(Vector3f::dot(wo, N));
                 float R0 = (mat->getRefractiveIndex() - 1.0f) * (mat->getRefractiveIndex() - 1.0f) /
                            ((mat->getRefractiveIndex() + 1.0f) * (mat->getRefractiveIndex() + 1.0f));

@@ -28,6 +28,7 @@ struct GPUMaterial {
     float F0_r, F0_g, F0_b;     // specular F0 (glossy) / emission (emissive)
     float atten_r, atten_g, atten_b; // attenuation (reflective/refractive)
     float ior, roughness;
+    float dispersion;
     int type;
     int hasFresnel;
 };

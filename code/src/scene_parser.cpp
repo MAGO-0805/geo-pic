@@ -294,6 +294,7 @@ Material *SceneParser::parseRefractiveMaterial() {
     Vector3f attenuationColor(1, 1, 1);
     float refractiveIndex = 1.5f;
     bool fresnel = false;
+    float dispersion = 0.0f;
     getToken(token);
     assert (!strcmp(token, "{"));
     while (true) {
@@ -305,12 +306,14 @@ Material *SceneParser::parseRefractiveMaterial() {
         } else if (!strcmp(token, "fresnel")) {
             getToken(token);
             fresnel = !strcmp(token, "on");
+        } else if (!strcmp(token, "dispersion")) {
+            dispersion = readFloat();
         } else {
             assert (!strcmp(token, "}"));
             break;
         }
     }
-    auto *m = new Material(REFRACTIVE, refractiveIndex, attenuationColor);
+    auto *m = new Material(REFRACTIVE, refractiveIndex, attenuationColor, dispersion);
     if (fresnel) m->setFresnel(true);
     return m;
 }

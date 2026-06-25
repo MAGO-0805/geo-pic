@@ -18,23 +18,23 @@ public:
     explicit Material(const Vector3f &d_color, const Vector3f &s_color = Vector3f::ZERO, float s = 0) :
             type(PHONG), brdf(new LambertianBRDF(d_color)),
             diffuseColor(d_color), specularColor(s_color), shininess(s),
-            emissionColor(Vector3f::ZERO), emissiveFlag(false) {}
+            emissionColor(Vector3f::ZERO), emissiveFlag(false), dispersionSpread(0) {}
 
     // REFLECTIVE
     Material(MaterialType t, const Vector3f &atten) :
             type(REFLECTIVE), brdf(new SpecularReflectionBRDF(atten)),
             diffuseColor(Vector3f::ZERO), specularColor(Vector3f::ZERO), shininess(0),
             attenuationColor(atten), refractiveIndex(1.0f),
-            emissionColor(Vector3f::ZERO), emissiveFlag(false) {
+            emissionColor(Vector3f::ZERO), emissiveFlag(false), dispersionSpread(0) {
         assert(t == REFLECTIVE);
     }
 
     // REFRACTIVE
-    Material(MaterialType t, float ior, const Vector3f &atten) :
+    Material(MaterialType t, float ior, const Vector3f &atten, float dispersion = 0.0f) :
             type(REFRACTIVE), brdf(new SpecularTransmissionBRDF(ior, atten)),
             diffuseColor(Vector3f::ZERO), specularColor(Vector3f::ZERO), shininess(0),
             attenuationColor(atten), refractiveIndex(ior),
-            emissionColor(Vector3f::ZERO), emissiveFlag(false) {
+            emissionColor(Vector3f::ZERO), emissiveFlag(false), dispersionSpread(dispersion) {
         assert(t == REFRACTIVE);
     }
 
@@ -42,7 +42,7 @@ public:
     Material(MaterialType t, const Vector3f &emission, const Vector3f &) :
             type(PHONG), brdf(new LambertianBRDF(Vector3f::ZERO)),
             diffuseColor(Vector3f::ZERO), specularColor(Vector3f::ZERO), shininess(0),
-            emissionColor(emission), emissiveFlag(true) {
+            emissionColor(emission), emissiveFlag(true), dispersionSpread(0) {
         assert(t == EMISSIVE);
     }
 
@@ -51,7 +51,7 @@ public:
             type(GLOSSY), brdf(new GlossyBRDF(kd, F0, roughness)),
             diffuseColor(kd), specularColor(F0), shininess(0),
             attenuationColor(Vector3f::ZERO), refractiveIndex(1.0f),
-            emissionColor(Vector3f::ZERO), emissiveFlag(false), glossyRoughness(roughness) {
+            emissionColor(Vector3f::ZERO), emissiveFlag(false), glossyRoughness(roughness), dispersionSpread(0) {
         assert(t == GLOSSY);
     }
 
@@ -65,6 +65,7 @@ public:
     Vector3f getAttenuationColor() const { return attenuationColor; }
     float getRefractiveIndex() const { return refractiveIndex; }
     float getRoughness() const { return glossyRoughness; }
+    float getDispersion() const { return dispersionSpread; }
 
     void setFresnel(bool v) {
         if (auto *st = dynamic_cast<SpecularTransmissionBRDF *>(brdf))
@@ -110,6 +111,7 @@ private:
     float glossyRoughness;
     Vector3f emissionColor;
     bool emissiveFlag;
+    float dispersionSpread;
 };
 
 #endif // MATERIAL_H
