@@ -22,7 +22,7 @@ using namespace std;
 // === 配置 ===
 struct Config {
     bool use_path_tracing = true;
-    bool use_mis = true;
+    std::string direct_lighting = "mis";
     bool use_omp = true;
 };
 
@@ -44,7 +44,7 @@ Config loadConfig(const char *path) {
         key.erase(key.find_last_not_of(" \t") + 1);
         val.erase(0, val.find_first_not_of(" \t"));
         val.erase(val.find_last_not_of(" \t") + 1);
-        if (key == "use_mis") cfg.use_mis = (val == "true");
+        if (key == "direct_lighting") cfg.direct_lighting = val;
         if (key == "use_path_tracing") cfg.use_path_tracing = (val == "true");
         if (key == "use_omp") cfg.use_omp = (val == "true");
     }
@@ -158,9 +158,9 @@ Vector3f tracePath(const Ray &firstRay, Group *scene, const Vector3f &bgColor,
 
         // 击中发光体
         if (mat->isEmissive()) {
-            if (depth == 0 || !cfg.use_mis) {
+            if (depth == 0 || cfg.direct_lighting == "brdf") {
                 radiance += throughput * mat->getEmission();
-            } else if (prevBRDF) {
+            } else if (cfg.direct_lighting != "nee" && prevBRDF) {
                 // BRDF 弹射侧 MIS
                 Vector3f wi_local = ray.getDirection().normalized();
                 float pdf_brdf = prevBRDF->pdf(prevWo, wi_local, prevN);
@@ -218,7 +218,7 @@ Vector3f tracePath(const Ray &firstRay, Group *scene, const Vector3f &bgColor,
             prevBRDF = brdf;
             prevThroughput = throughput;
 
-            if (cfg.use_mis) {
+            if (cfg.direct_lighting != "brdf") {
                 // NEE: 对每个发光体采样
                 for (Object3D *emissive : emissives) {
                 Vector3f lp, ln;
@@ -238,10 +238,8 @@ Vector3f tracePath(const Ray &firstRay, Group *scene, const Vector3f &bgColor,
                 Hit sh;
                 float maxT = sqrt(dist2);
                 if (scene->intersect(sray, sh, EPSILON)) {
-                    if (sh.getMaterial() != emissive->getMaterial())
-                        continue;                        // 被其他物体遮挡
-                    if (sh.getT() < maxT * 0.99f)
-                        continue;                        // 发光体自身另一面遮挡
+                    if (!sh.getMaterial()->isEmissive())
+                        continue;                        // 非发光体遮挡
                 }
 
                 Vector3f brdf_val = brdf->eval(wo, lwi, N);
@@ -249,7 +247,9 @@ Vector3f tracePath(const Ray &firstRay, Group *scene, const Vector3f &bgColor,
                 float mis_w = (pdf_w * pdf_w) / (pdf_w * pdf_w + pdf_brdf * pdf_brdf + 1e-6f);
                 radiance += throughput * emissive->getMaterial()->getEmission() * brdf_val * mis_w / pdf_w;
             }
-            } // use_mis
+            } // NEE
+
+            if (cfg.direct_lighting == "nee") break; // 纯 NEE 模式：不弹射
 
             brdf->sample(wo, N, randf(), randf(), wi, pdf);
             if (pdf < 1e-6f) break;
@@ -285,7 +285,7 @@ int main(int argc, char *argv[]) {
 
     if (cfg.use_path_tracing) {
         Vector3f bg = parser.getBackgroundColor();
-        cout << "use_mis=" << (cfg.use_mis ? "true" : "false") << endl;
+        cout << "direct_lighting=" << cfg.direct_lighting << endl;
         cout << "Path Tracing " << w << "x" << h << " with " << SAMPLES << " spp...";
         #pragma omp parallel for schedule(dynamic) if(cfg.use_omp)
         for (int y = 0; y < h; y++) {

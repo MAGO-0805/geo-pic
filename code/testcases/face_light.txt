@@ -73,7 +73,7 @@ Materials {
 }
 
 Group {
-    numObjects 12
+    numObjects 7
     MaterialIndex 0
     Plane {
         normal 0 1 0
@@ -98,34 +98,6 @@ Group {
     Plane {
         normal -1 0 0
         offset -3
-    }
-    MaterialIndex 5
-    Sphere {
-        center -1.5 1.5 -3
-        radius 0.9
-    }
-    MaterialIndex 6
-    Sphere {
-        center 0 0.5 -1.5
-        radius 1.0
-    }
-    MaterialIndex 7
-    Transform {
-        Scale 0.4 0.4 0.2
-        Translate -2 -0.5 -1.5
-        TriangleMesh {
-            obj_file mesh/cube.obj
-        }
-    }
-    MaterialIndex 8
-    Sphere {
-        center 2 1.2 -0.5
-        radius 0.75
-    }
-    MaterialIndex 8
-    Sphere {
-        center 1.8 -0.4 -2.2
-        radius 0.7
     }
     MaterialIndex 10
     Sphere {
