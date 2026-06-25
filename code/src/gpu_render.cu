@@ -341,6 +341,10 @@ __global__ void path_trace_kernel(
         float3 thr = make_float3_(1,1,1);
         float currentIOR = 1.0f;
         bool fromDelta = false;
+        // BRDF 侧 MIS: 上一非 delta 顶点信息
+        float3 prevHp, prevN, prevWo, prevThroughput;
+        int prevType = -1;
+        float prevKd_r=0,prevKd_g=0,prevKd_b=0, prevF0_r=0,prevF0_g=0,prevF0_b=0, prevRoughness=0;
 
         for (int depth = 0; depth < MAX_DEPTH_GPU; depth++) {
             if (depth > RR_DEPTH_GPU) {
@@ -362,6 +366,40 @@ __global__ void path_trace_kernel(
             if (mat.type == GPU_EMISSIVE) {
                 if (depth == 0 || mode == 0 || fromDelta) {
                     rsum+=thr.x*mat.F0_r; gsum+=thr.y*mat.F0_g; bsum+=thr.z*mat.F0_b;
+                } else if (mode == 1 && prevType >= 0) {
+                    // BRDF 侧 MIS: 上一非 delta 顶点弹中光源
+                    float3 wi_prev = normalize_f3(hp - prevHp);
+                    float pdf_brdf = 0, pdf_light = 0;
+                    float3 brdf_val = make_float3_(0,0,0);
+                    // 上一顶点的 BRDF pdf/eval
+                    if (prevType == GPU_DIFFUSE) {
+                        float c = fmaxf(0, dot_f3(prevN, wi_prev));
+                        pdf_brdf = c / M_PI;
+                        brdf_val = make_float3_(prevKd_r*c/M_PI, prevKd_g*c/M_PI, prevKd_b*c/M_PI);
+                    } else if (prevType == GPU_GLOSSY) {
+                        float3 kd = make_float3_(prevKd_r,prevKd_g,prevKd_b);
+                        float3 F0 = make_float3_(prevF0_r,prevF0_g,prevF0_b);
+                        brdf_val = gpu_ggx_eval(prevWo, wi_prev, prevN, kd, F0, prevRoughness);
+                        float pD = (kd.x+kd.y+kd.z)/(kd.x+kd.y+kd.z+F0.x+F0.y+F0.z+1e-6f);
+                        float pdfD = fmaxf(0,dot_f3(prevN,wi_prev))/M_PI;
+                        float3 h_ = normalize_f3(prevWo+wi_prev);
+                        float ch=fmaxf(0,dot_f3(prevN,h_)), dw=fmaxf(1e-6f,dot_f3(prevWo,h_));
+                        float a2=prevRoughness*prevRoughness;
+                        float D_=a2/(M_PI*ch*ch*ch*ch*(a2+(1-ch*ch)/(ch*ch))*(a2+(1-ch*ch)/(ch*ch)));
+                        pdf_brdf = pD*pdfD + (1-pD)*D_*ch/(4*dw);
+                    }
+                    // 光源 pdf: 球体面积
+                    float dist2 = (hp.x-prevHp.x)*(hp.x-prevHp.x)+(hp.y-prevHp.y)*(hp.y-prevHp.y)+(hp.z-prevHp.z)*(hp.z-prevHp.z);
+                    float cLight = fabsf(dot_f3(N, wi_prev*(-1.0f)));
+                    if (cLight > 0 && pdf_brdf > 1e-8f) {
+                        for (int si=0;si<nSpheres;si++)if(spheres[si].mat_id==mid){
+                            float area=4*M_PI*spheres[si].r*spheres[si].r;
+                            pdf_light = (1.0f/area)*dist2/cLight; break;
+                        }
+                        float mis_w = (pdf_brdf*pdf_brdf)/(pdf_brdf*pdf_brdf+pdf_light*pdf_light+1e-6f);
+                        float3 contrib = make_float3_(mat.F0_r,mat.F0_g,mat.F0_b)*brdf_val*(mis_w/pdf_brdf);
+                        rsum+=prevThroughput.x*contrib.x; gsum+=prevThroughput.y*contrib.y; bsum+=prevThroughput.z*contrib.z;
+                    }
                 }
                 break;
             }
@@ -396,7 +434,7 @@ __global__ void path_trace_kernel(
                     float st, snx,sny,snz; int smid;
                     float maxT = sqrtf(dist2);
                     if (gpu_scene_intersect(spheres,nSpheres,tris,nTris,hp.x,hp.y,hp.z,lwi.x,lwi.y,lwi.z,EPS_GPU,st,snx,sny,snz,smid)) {
-                        if (materials[smid].type != GPU_EMISSIVE && materials[smid].type != GPU_REFRACTIVE) continue;
+                        if (materials[smid].type != GPU_EMISSIVE) continue;
                     }
                     // eval BRDF
                     float3 brdf_val; float pdf_brdf_val;
@@ -422,7 +460,18 @@ __global__ void path_trace_kernel(
                 }
             }
 
-            if (mode == 2) break; // pure NEE
+            if (mode == 2 && mat.type != GPU_REFLECTIVE && mat.type != GPU_REFRACTIVE) break; // pure NEE: delta 继续追踪
+
+            // 保存非 delta 顶点信息（BRDF 采样前），用于下一跳 MIS
+            if (mat.type == GPU_DIFFUSE || mat.type == GPU_GLOSSY) {
+                prevHp = hp; prevN = N; prevWo = wo; prevThroughput = thr;
+                prevType = mat.type;
+                prevKd_r=mat.kd_r;prevKd_g=mat.kd_g;prevKd_b=mat.kd_b;
+                prevF0_r=mat.F0_r;prevF0_g=mat.F0_g;prevF0_b=mat.F0_b;
+                prevRoughness=mat.roughness;
+            } else {
+                prevType = -1; // delta 顶点不参与 MIS
+            }
 
             float3 wi; float pdf_brdf;
             if (mat.type == GPU_DIFFUSE) {
