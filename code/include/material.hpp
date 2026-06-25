@@ -8,46 +8,76 @@
 #include "hit.hpp"
 #include <iostream>
 
-// TODO: Implement Shade function that computes Phong introduced in class.
+enum MaterialType { PHONG, REFLECTIVE, REFRACTIVE };
+
 class Material {
 public:
 
+    // PHONG constructor (backward-compatible)
     explicit Material(const Vector3f &d_color, const Vector3f &s_color = Vector3f::ZERO, float s = 0) :
-            diffuseColor(d_color), specularColor(s_color), shininess(s) {
+            type(PHONG), diffuseColor(d_color), specularColor(s_color), shininess(s),
+            attenuationColor(Vector3f::ZERO), refractiveIndex(1.0f) {}
 
+    // REFLECTIVE constructor
+    Material(MaterialType t, const Vector3f &atten) :
+            type(REFLECTIVE), diffuseColor(Vector3f::ZERO), specularColor(Vector3f::ZERO), shininess(0),
+            attenuationColor(atten), refractiveIndex(1.0f) {
+        assert(t == REFLECTIVE);
+    }
+
+    // REFRACTIVE constructor
+    Material(MaterialType t, float ior, const Vector3f &atten) :
+            type(REFRACTIVE), diffuseColor(Vector3f::ZERO), specularColor(Vector3f::ZERO), shininess(0),
+            attenuationColor(atten), refractiveIndex(ior) {
+        assert(t == REFRACTIVE);
     }
 
     virtual ~Material() = default;
+
+    MaterialType getType() const { return type; }
 
     virtual Vector3f getDiffuseColor() const {
         return diffuseColor;
     }
 
+    Vector3f getAttenuationColor() const { return attenuationColor; }
+    float getRefractiveIndex() const { return refractiveIndex; }
 
     Vector3f Shade(const Ray &ray, const Hit &hit,
                    const Vector3f &dirToLight, const Vector3f &lightColor) {
-        Vector3f shaded = Vector3f::ZERO; // 返回的是颜色坐标，这里只用处理一条光的作用，累加由main实现
-        // 计算必要的单位向量
-        Vector3f L = dirToLight.normalized(); // 光线从交点指向光源的单位向量
-        Vector3f N = hit.getNormal().normalized(); // 交点处的单位法向量
-        Vector3f V = -ray.getDirection(); // 交点处指向相机的单位向量
-        Vector3f R = (2 * Vector3f::dot(N, L) * N - L).normalized(); // 交点处的反射光线单位向量
-        
-        // 计算漫反射分量
-        Vector3f diffuse = diffuseColor * std::max(0.0f, Vector3f::dot(N, L));
+        Vector3f shaded = Vector3f::ZERO;
+        Vector3f L = dirToLight.normalized();
+        Vector3f N = hit.getNormal().normalized();
+        Vector3f V = -ray.getDirection();
+        Vector3f R = (2 * Vector3f::dot(N, L) * N - L).normalized();
 
-        // 计算镜面反射分量
+        Vector3f diffuse = diffuseColor * std::max(0.0f, Vector3f::dot(N, L));
         Vector3f specular = specularColor * std::pow(std::max(0.0f, Vector3f::dot(R, V)), shininess);
-        
-        // 叠加漫反射和镜面反射分量得到最终颜色
-        shaded = lightColor * (diffuse + specular); // 注意Vector3f * Vector3f是分量乘，即每个分量分别相乘
+
+        shaded = lightColor * (diffuse + specular);
         return shaded;
     }
 
+    static Vector3f reflectDirection(const Vector3f &I, const Vector3f &N) {
+        return (I - 2.0f * Vector3f::dot(N, I) * N).normalized();
+    }
+
+    static bool refractDirection(const Vector3f &I, const Vector3f &N, float eta, Vector3f &T) {
+        float cosI = -Vector3f::dot(I, N);
+        float sinT2 = eta * eta * (1.0f - cosI * cosI);
+        if (sinT2 > 1.0f) return false;
+        float cosT = sqrt(1.0f - sinT2);
+        T = (eta * I + (eta * cosI - cosT) * N).normalized();
+        return true;
+    }
+
 protected:
+    MaterialType type;
     Vector3f diffuseColor;
     Vector3f specularColor;
     float shininess;
+    Vector3f attenuationColor;
+    float refractiveIndex;
 };
 
 

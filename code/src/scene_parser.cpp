@@ -223,7 +223,11 @@ void SceneParser::parseMaterials() {
         getToken(token);
         if (!strcmp(token, "Material") ||
             !strcmp(token, "PhongMaterial")) {
-            materials[count] = parseMaterial();
+            materials[count] = parsePhongMaterial();
+        } else if (!strcmp(token, "ReflectiveMaterial")) {
+            materials[count] = parseReflectiveMaterial();
+        } else if (!strcmp(token, "RefractiveMaterial")) {
+            materials[count] = parseRefractiveMaterial();
         } else {
             printf("Unknown token in parseMaterial: '%s'\n", token);
             exit(0);
@@ -235,7 +239,7 @@ void SceneParser::parseMaterials() {
 }
 
 
-Material *SceneParser::parseMaterial() {
+Material *SceneParser::parsePhongMaterial() {
     char token[MAX_PARSER_TOKEN_LENGTH];
     char filename[MAX_PARSER_TOKEN_LENGTH];
     filename[0] = 0;
@@ -261,6 +265,43 @@ Material *SceneParser::parseMaterial() {
     }
     auto *answer = new Material(diffuseColor, specularColor, shininess);
     return answer;
+}
+
+Material *SceneParser::parseReflectiveMaterial() {
+    char token[MAX_PARSER_TOKEN_LENGTH];
+    Vector3f attenuationColor(1, 1, 1);
+    getToken(token);
+    assert (!strcmp(token, "{"));
+    while (true) {
+        getToken(token);
+        if (!strcmp(token, "attenuationColor")) {
+            attenuationColor = readVector3f();
+        } else {
+            assert (!strcmp(token, "}"));
+            break;
+        }
+    }
+    return new Material(REFLECTIVE, attenuationColor);
+}
+
+Material *SceneParser::parseRefractiveMaterial() {
+    char token[MAX_PARSER_TOKEN_LENGTH];
+    Vector3f attenuationColor(1, 1, 1);
+    float refractiveIndex = 1.5f;
+    getToken(token);
+    assert (!strcmp(token, "{"));
+    while (true) {
+        getToken(token);
+        if (!strcmp(token, "refractiveIndex")) {
+            refractiveIndex = readFloat();
+        } else if (!strcmp(token, "attenuationColor")) {
+            attenuationColor = readVector3f();
+        } else {
+            assert (!strcmp(token, "}"));
+            break;
+        }
+    }
+    return new Material(REFRACTIVE, refractiveIndex, attenuationColor);
 }
 
 // ====================================================================

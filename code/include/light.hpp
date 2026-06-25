@@ -11,6 +11,9 @@ public:
     virtual ~Light() = default;
 
     virtual void getIllumination(const Vector3f &p, Vector3f &dir, Vector3f &col) const = 0;
+
+    // Shadow Ray 最大有效距离：方向光无穷远，点光源为交点到光源距离
+    virtual float getMaxShadowDistance(const Vector3f &p) const = 0;
 };
 
 
@@ -25,13 +28,13 @@ public:
 
     ~DirectionalLight() override = default;
 
-    ///@param p unsed in this function
-    ///@param distanceToLight not well defined because it's not a point light
     void getIllumination(const Vector3f &p, Vector3f &dir, Vector3f &col) const override {
-        // the direction to the light is the opposite of the
-        // direction of the directional light source
         dir = -direction;
         col = color;
+    }
+
+    float getMaxShadowDistance(const Vector3f &p) const override {
+        return 1e38; // 方向光无穷远，任意遮挡即产生阴影
     }
 
 private:
@@ -53,11 +56,13 @@ public:
     ~PointLight() override = default;
 
     void getIllumination(const Vector3f &p, Vector3f &dir, Vector3f &col) const override {
-        // the direction to the light is the opposite of the
-        // direction of the directional light source
         dir = (position - p);
         dir = dir / dir.length();
         col = color;
+    }
+
+    float getMaxShadowDistance(const Vector3f &p) const override {
+        return (position - p).length(); // 点光源：遮挡物必须在交点与光源之间
     }
 
 private:
