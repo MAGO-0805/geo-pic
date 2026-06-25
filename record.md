@@ -149,3 +149,51 @@ RefractiveMaterial {
 **编译**（`CMakeLists.txt`）。`find_package(OpenMP)` 自动检测编译器和链接标志。若机器不支持 OpenMP，pragma 被静默忽略，回退单线程。
 
 **开关**（`config/settings.conf`）。`use_omp = true` 开启，`false` 关闭。关闭时与修改前行为完全一致。
+
+## 法向插值（Smooth Shading）
+
+**核心思想**：三角网格本来就是用平面去近似曲面——兔子 200 个三角拼出来，每个三角只有一个法向量，面与面之间有明显的棱，像低面数的游戏模型。法向插值不是增加三角，而是"骗"着色器：在三角内部让法向量渐变，把硬棱抹平。每个顶点存一个"平均法向量"（周围面法向量的平均值），三角内部任意一点的着色法向量 = 三个顶点法向量按重心坐标混合。
+
+**目的和预期**：让 bunny 等网格模型看起来光滑而非马赛克。对独立三角（非 Mesh）无影响，因为三个顶点法向量都是同一个面法向量，插值出来还是面法向量。对平面墙也无影响，原因相同。
+
+**算法思路**：
+
+1. **CPU 端算顶点法向量**：`Mesh::computeNormal()` 先算每个面的法向量 `n[i]`（叉积 + 归一化），再对每个顶点累加所有相邻面的 `n[i]`，最后归一化。结果存进 `vn` 数组——第 k 个顶点的法向量 = 所有包含该顶点的三角面的法向量平均值。
+
+2. **展平时顺带传下去**：`flattenScene` 把 `GPUTriangle` 加 9 个 float（三个顶点的法向量 `n0, n1, n2`）。对独立三角，三个都填面法向量；对 Mesh，从 `vn` 取 + 乘法线变换矩阵（`accInv.transposed()`）变换到世界空间；对 Plane，三个都填平面法向量。**额外修复**：Plane 的三角顶点顺序在不同轴向上导出的几何面法向量方向不一致（有的同向有的反向），逐三角检查 `dot(cross(edge1,edge2), plane_normal)`，反向则交换两顶点，确保几何面法向量始终等于平面法向量。
+
+3. **GPU 求交时插值**：`gpu_intersect_triangle` 命中三角后，用已有的重心坐标 `β, γ` 线性混合：`N = (1-β-γ)·N₀ + β·N₁ + γ·N₂`，归一化即得着色素法向量。
+
+4. **翻转判断的关键细节**：法向量必须朝向光线来源侧才能正确计算余弦项。用**几何面法向量** `fn = cross(e1, e2)` 做翻转判断（而非插值法向量），因为 fn 对三角全局一致，不会因插值在轮廓处偏斜而导致错误翻转。`fn` 的顶点顺序在第 2 步已修正为与数据法向量同向。
+
+**低面数局限**：200 面 bunny 的耳朵尖等部位，相邻面夹角可达 60-90°，顶点法向量取平均后偏了近 45°，既不贴合左面也不贴合右面。插值能在三角内部渐变，但跨边时梯度不连续——笔直色差边界属于 Phong 插值固有局限，不是 bug。提高面数可缓解。
+
+**开关**：`config/settings.conf` 中 `use_smooth_shading = true/false`。`false` 时 kernel 走原几何面法向量路径。
+
+**涉及文件**：
+
+| 文件 | 改动 |
+|------|------|
+| `include/mesh.hpp` | 新增 `vn` 数组（逐顶点法向量） |
+| `src/mesh.cpp` | `computeNormal()` 追加顶点法向量计算（面法向量累加 + 归一化） |
+| `include/gpu_render.h` | `GPUTriangle` 新增 9 个 float：`n0x/y/z, n1x/y/z, n2x/y/z`，`gpuRender` 新增 `smoothShading` 参数 |
+| `src/gpu_render.cu` | `flattenScene`：三路填充顶点法向量（独立三角=面法向量、Mesh=vn+法线矩阵变换、Plane=平面法向量+顶点顺序修正）。`gpu_intersect_triangle`：新增 9 参数，命中后重心插值。`gpu_scene_intersect`/`path_trace_kernel`：透传 `useSmooth` 标志。翻转判断用几何面法向量 |
+| `src/main.cpp` | `Config` 新增 `use_smooth_shading`，`loadConfig` 解析，传递到 `gpuRender` |
+| `config/settings.conf` | 新增 `use_smooth_shading = true` |
+
+## 伽马校正（Gamma Correction）
+
+**核心思想**：显示器不是线性的——给它 0.5 的电压，人眼看到的不是"一半亮"，而是更暗（约 0.22 感知亮度）。这是 CRT 时代留下的物理特性，现代显示器也沿用，标准 gamma 值约 2.2。路径追踪算出的是线性辐射度值，直接写进图片会被显示器压暗：暗部死黑、中间调发灰。伽马校正就是写文件前先做逆运算 `pow(x, 1/2.2)`，显示器再压一次 `pow(x, 2.2)`，两者抵消，人眼看到正确的线性亮度。
+
+**预期**：暗部细节不再被压死，中间调更亮，整体画面观感"正常"。
+
+**算法**：逐像素逐通道 `pow(value, 1.0/2.2)`。纯后处理，不影响渲染核心。
+
+**实现**：`main.cpp` 新增 `gammaCorrect(Vector3f)` 内联函数，在 GPU 路径追踪、CPU 路径追踪、Whitted 三条路径的 `SetPixel` 前各套一层，受 `use_gamma_correction` 开关控制。关闭时直接透传原值。
+
+**涉及文件**：
+
+| 文件 | 改动 |
+|------|------|
+| `src/main.cpp` | `Config` 新增 `use_gamma_correction`，`loadConfig` 解析，新增 `gammaCorrect()` 辅助函数，三条渲染路径 `SetPixel` 前条件应用 |
+| `config/settings.conf` | 新增 `use_gamma_correction = true` |

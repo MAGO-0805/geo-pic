@@ -30,6 +30,8 @@ struct Config {
     bool use_omp = true;
     bool use_cuda = false;
     bool use_smooth_shading = true;
+    bool use_gamma_correction = true;
+    float gamma = 2.2f;
 };
 
 Config loadConfig(const char *path) {
@@ -55,6 +57,8 @@ Config loadConfig(const char *path) {
         if (key == "use_omp") cfg.use_omp = (val == "true");
         if (key == "use_cuda") cfg.use_cuda = (val == "true");
         if (key == "use_smooth_shading") cfg.use_smooth_shading = (val == "true");
+        if (key == "use_gamma_correction") cfg.use_gamma_correction = (val == "true");
+        if (key == "gamma") cfg.gamma = (float)atof(val.c_str());
     }
     return cfg;
 }
@@ -65,6 +69,11 @@ const int MAX_DEPTH = 10;
 const int RR_DEPTH = 3;
 const float EPSILON = 0.001f;
 const float AIR_IOR = 1.0f;
+
+inline Vector3f gammaCorrect(const Vector3f &c, float gamma) {
+    float inv = 1.0f / gamma;
+    return Vector3f(powf(c.x(), inv), powf(c.y(), inv), powf(c.z(), inv));
+}
 
 // === 随机数（每线程独立种子） ===
 inline float randf() {
@@ -303,7 +312,8 @@ int main(int argc, char *argv[]) {
             for (int y = 0; y < h; y++)
                 for (int x = 0; x < w; x++) {
                     int i = (y * w + x) * 3;
-                    outputImage.SetPixel(x, y, Vector3f(pixels[i], pixels[i+1], pixels[i+2]));
+                    Vector3f c(pixels[i], pixels[i+1], pixels[i+2]);
+                    outputImage.SetPixel(x, y, cfg.use_gamma_correction ? gammaCorrect(c, cfg.gamma) : c);
                 }
             delete[] pixels;
             cout << " Done!" << endl;
@@ -322,7 +332,8 @@ int main(int argc, char *argv[]) {
                     float jx = randf() - 0.5f, jy = randf() - 0.5f;
                     color += tracePath(camera->generateRay(Vector2f(x + jx, y + jy)), scene, bg, parser.getEmissives(), cfg);
                 }
-                outputImage.SetPixel(x, y, color / SAMPLES);
+                Vector3f c = color / SAMPLES;
+                outputImage.SetPixel(x, y, cfg.use_gamma_correction ? gammaCorrect(c, cfg.gamma) : c);
             }
             if (y % (h / 10) == 0) cout << "." << flush;
         }
@@ -333,7 +344,8 @@ int main(int argc, char *argv[]) {
         for (int y = 0; y < h; y++) {
             for (int x = 0; x < w; x++) {
                 Ray r = camera->generateRay(Vector2f(x, y));
-                outputImage.SetPixel(x, y, traceWhitted(r, 0, scene, parser, 0, AIR_IOR));
+                Vector3f c = traceWhitted(r, 0, scene, parser, 0, AIR_IOR);
+                outputImage.SetPixel(x, y, cfg.use_gamma_correction ? gammaCorrect(c, cfg.gamma) : c);
             }
             if (y % (h / 10) == 0) cout << "." << flush;
         }
