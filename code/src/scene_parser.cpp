@@ -228,6 +228,8 @@ void SceneParser::parseMaterials() {
             materials[count] = parseReflectiveMaterial();
         } else if (!strcmp(token, "RefractiveMaterial")) {
             materials[count] = parseRefractiveMaterial();
+        } else if (!strcmp(token, "EmissiveMaterial")) {
+            materials[count] = parseEmissiveMaterial();
         } else {
             printf("Unknown token in parseMaterial: '%s'\n", token);
             exit(0);
@@ -302,6 +304,23 @@ Material *SceneParser::parseRefractiveMaterial() {
         }
     }
     return new Material(REFRACTIVE, refractiveIndex, attenuationColor);
+}
+
+Material *SceneParser::parseEmissiveMaterial() {
+    char token[MAX_PARSER_TOKEN_LENGTH];
+    Vector3f emissionColor(1, 1, 1);
+    getToken(token);
+    assert (!strcmp(token, "{"));
+    while (true) {
+        getToken(token);
+        if (!strcmp(token, "emissionColor")) {
+            emissionColor = readVector3f();
+        } else {
+            assert (!strcmp(token, "}"));
+            break;
+        }
+    }
+    return new Material(EMISSIVE, emissionColor, Vector3f::ZERO);
 }
 
 // ====================================================================

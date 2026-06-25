@@ -67,6 +67,7 @@ private:
     Material *parsePhongMaterial();
     Material *parseReflectiveMaterial();
     Material *parseRefractiveMaterial();
+    Material *parseEmissiveMaterial();
     Object3D *parseObject(char token[MAX_PARSER_TOKEN_LENGTH]);
     Group *parseGroup();
     Sphere *parseSphere();
