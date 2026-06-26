@@ -2,7 +2,7 @@
 
 ## 参考来源
 
-原始框架基于 Peter Shirley & Keith Morley 的光线追踪教学代码（`ray.hpp` 中注释注明），Phong 模型来自课程第四讲课件，Whitted 模型参考 Turner Whitted 1980 年论文，路径追踪的蒙特卡洛估计与俄罗斯轮盘赌策略参考课程第二讲习题课伪代码。
+原始框架基于 PA1 路径追踪的蒙特卡洛估计与俄罗斯轮盘赌策略参考课程第二讲习题课。
 
 ## Whitted-Style 光线追踪
 
