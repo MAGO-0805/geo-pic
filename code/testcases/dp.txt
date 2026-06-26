@@ -41,7 +41,7 @@ Materials {
     RefractiveMaterial {
         refractiveIndex 1.5
         attenuationColor 0.95 0.95 0.95
-		dispersion 0.0001
+		dispersion 0.1
     }
     EmissiveMaterial {
         emissionColor 20 20 20

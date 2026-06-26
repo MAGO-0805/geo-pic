@@ -29,9 +29,9 @@ Materials {
         roughness 0.5
     }
     GlossyMaterial {
-        diffuseColor 0.05 0.05 0.06
-        specularColor 0.85 0.82 0.78
-        roughness 0.15
+        diffuseColor 0.2 0.2 0.1
+        specularColor 0.8 0.8 0.7
+        roughness 0.3
     }
     EmissiveMaterial {
         emissionColor 10 8 6

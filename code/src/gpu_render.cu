@@ -363,7 +363,7 @@ __global__ void path_trace_kernel(
     const GPUMaterial *materials,
     int nEmissives, const int *emissiveIndices,
     GPUCamera cam, float bg_r, float bg_g, float bg_b,
-    float *output, int samples, int mode, int useSmooth)  // 0=brdf, 1=mis, 2=nee
+    float *output, int samples, int mode, int useSmooth, int useFresnel)  // 0=brdf, 1=mis, 2=nee
 {
     int px = blockIdx.x * blockDim.x + threadIdx.x;
     int py = blockIdx.y * blockDim.y + threadIdx.y;
@@ -555,7 +555,7 @@ __global__ void path_trace_kernel(
                     float nextIOR = (currentIOR == mat.ior) ? 1.0f : mat.ior;
                     float3 T;
                     if (gpu_refract(I, N, eta, T)) {
-                        if (mat.hasFresnel) {
+                        if (useFresnel) {
                             float cosI = fabsf(dot_f3(d, N));
                             float Fr = gpu_fresnel(cosI, mat.ior);
                             if (gpu_randf(seed) < Fr) {
@@ -603,10 +603,11 @@ __global__ void path_trace_kernel(
 }
 
 // ============ 主机渲染入口 ============
-void gpuRender(const GPUScene &scene, float *output, int samples, const char *mode, bool smoothShading) {
+void gpuRender(const GPUScene &scene, float *output, int samples, const char *mode, bool smoothShading, bool useFresnel) {
     int w = scene.cam.w, h = scene.cam.h;
     int modeInt = (strcmp(mode, "brdf") == 0) ? 0 : (strcmp(mode, "nee") == 0) ? 2 : 1;
     int sm = smoothShading ? 1 : 0;
+    int uf = useFresnel ? 1 : 0;
     cout << "GPU: " << scene.spheres.size() << " spheres, " << scene.triangles.size()
          << " triangles, mode=" << mode << (smoothShading ? " smooth" : " flat") << endl;
 
@@ -650,7 +651,7 @@ void gpuRender(const GPUScene &scene, float *output, int samples, const char *mo
         d_mats, nEm, d_emIdx,
         scene.cam,
         scene.bg_r, scene.bg_g, scene.bg_b,
-        d_output, samples, modeInt, sm);
+        d_output, samples, modeInt, sm, uf);
 
     err = cudaGetLastError();
     if (err != cudaSuccess) cout << "Kernel launch: " << cudaGetErrorString(err) << endl;

@@ -56,6 +56,6 @@ struct GPUScene {
 GPUScene flattenScene(class SceneParser &parser, class Group *group);
 
 // GPU 渲染入口，mode = "mis" / "brdf" / "nee"
-void gpuRender(const GPUScene &scene, float *output, int samples, const char *mode, bool smoothShading);
+void gpuRender(const GPUScene &scene, float *output, int samples, const char *mode, bool smoothShading, bool useFresnel);
 
 #endif

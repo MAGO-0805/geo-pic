@@ -32,6 +32,7 @@ struct Config {
     bool use_smooth_shading = true;
     bool use_gamma_correction = true;
     float gamma = 2.2f;
+    bool use_fresnel = true;
 };
 
 Config loadConfig(const char *path) {
@@ -59,12 +60,13 @@ Config loadConfig(const char *path) {
         if (key == "use_smooth_shading") cfg.use_smooth_shading = (val == "true");
         if (key == "use_gamma_correction") cfg.use_gamma_correction = (val == "true");
         if (key == "gamma") cfg.gamma = (float)atof(val.c_str());
+        if (key == "use_fresnel") cfg.use_fresnel = (val == "true");
     }
     return cfg;
 }
 
 // === 路径追踪参数 ===
-const int SAMPLES = 10000;
+const int SAMPLES = 500;
 const int MAX_DEPTH = 10;
 const int RR_DEPTH = 3;
 const float EPSILON = 0.001f;
@@ -239,7 +241,7 @@ Vector3f tracePath(const Ray &firstRay, Group *scene, const Vector3f &bgColor,
                 throughput = throughput * brdf->deltaThroughput();
             }
 
-            if (!disp && mat->hasFresnel() && nextIOR != currentIOR) {
+            if (!disp && cfg.use_fresnel && mat->getType() == REFRACTIVE && nextIOR != currentIOR) {
                 float cosI = fabs(Vector3f::dot(wo, N));
                 float R0 = (mat->getRefractiveIndex() - 1.0f) * (mat->getRefractiveIndex() - 1.0f) /
                            ((mat->getRefractiveIndex() + 1.0f) * (mat->getRefractiveIndex() + 1.0f));
@@ -331,7 +333,7 @@ int main(int argc, char *argv[]) {
             cout << "GPU Path Tracing " << w << "x" << h << " with " << SAMPLES << " spp..." << endl;
             GPUScene gpuScene = flattenScene(parser, scene);
             float *pixels = new float[w * h * 3];
-            gpuRender(gpuScene, pixels, SAMPLES, cfg.direct_lighting.c_str(), cfg.use_smooth_shading);
+            gpuRender(gpuScene, pixels, SAMPLES, cfg.direct_lighting.c_str(), cfg.use_smooth_shading, cfg.use_fresnel);
             for (int y = 0; y < h; y++)
                 for (int x = 0; x < w; x++) {
                     int i = (y * w + x) * 3;
