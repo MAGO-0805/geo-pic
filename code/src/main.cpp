@@ -77,7 +77,7 @@ Config loadConfig(const char *path) {
 }
 
 // === 路径追踪参数 ===
-const int SAMPLES = 64;
+const int SAMPLES = 100;
 const int MAX_DEPTH = 10;
 const int RR_DEPTH = 3;
 const float EPSILON = 0.001f;
@@ -168,6 +168,13 @@ Vector3f tracePath(const Ray &firstRay, Group *scene, const Vector3f &bgColor,
     Vector3f prevHitPoint, prevWo, prevN;
     BRDF *prevBRDF = nullptr;
     Vector3f prevThroughput(0, 0, 0);
+
+    // Path guiding 延迟记录：收集路径上的非 delta 顶点，路径结束后用完整贡献记录
+    const int MAX_RECORDS = MAX_DEPTH;
+    struct PathVertex { Vector3f pos, N, wi; };
+    PathVertex pendingRecords[MAX_RECORDS];
+    Vector3f  radianceAfterNEE[MAX_RECORDS];  // 该顶点 NEE 完成后的 radiance
+    int       pendingCount = 0;
 
     for (int depth = 0; depth < MAX_DEPTH; depth++) {
         if (depth > RR_DEPTH) {
@@ -305,6 +312,11 @@ Vector3f tracePath(const Ray &firstRay, Group *scene, const Vector3f &bgColor,
 
             if (cfg.direct_lighting == "nee") break; // 纯 NEE 模式：不弹射
 
+            // 记录 NEE 完成后的 radiance（用于后续计算该顶点方向的真实贡献）
+            if (guiding && pendingCount < MAX_RECORDS) {
+                radianceAfterNEE[pendingCount] = radiance;
+            }
+
             if (guiding && guiding->isTrained() && guideProb > 0) {
                 // MIS between BSDF sampling and path guiding
                 float pdf_bsdf, pdf_guide;
@@ -328,16 +340,34 @@ Vector3f tracePath(const Ray &firstRay, Group *scene, const Vector3f &bgColor,
                 throughput = throughput * brdf->eval(wo, wi, N) / pdf;
             }
 
-            // 记录训练数据
-            if (guiding) {
-                float w = std::max(throughput.x(), std::max(throughput.y(), throughput.z()));
-                if (w > 0) guiding->record(hitPoint, N, wi, w);
+            // 延迟记录：暂存顶点信息，等路径结束后用完整 radiance 贡献来记录
+            if (guiding && pendingCount < MAX_RECORDS) {
+                pendingRecords[pendingCount].pos = hitPoint;
+                pendingRecords[pendingCount].N   = N;
+                pendingRecords[pendingCount].wi  = wi;
+                pendingCount++;
             }
 
             nextIOR = AIR_IOR;
         }
         ray = Ray(hitPoint, wi);
         currentIOR = nextIOR;
+    }
+
+    // 路径结束后，用完整 radiance 贡献记录所有非 delta 顶点
+    if (guiding) {
+        for (int i = 0; i < pendingCount; i++) {
+            // 该顶点 NEE 后的 radiance 为 radianceAfterNEE[i]
+            // 路径结束总 radiance - NEE 后 radiance = 该顶点 wi 方向的真实贡献
+            float prev = std::max(radianceAfterNEE[i].x(),
+                         std::max(radianceAfterNEE[i].y(), radianceAfterNEE[i].z()));
+            float cur  = std::max(radiance.x(), std::max(radiance.y(), radiance.z()));
+            float w = cur - prev;
+            if (w > 0) {
+                guiding->record(pendingRecords[i].pos, pendingRecords[i].N,
+                                pendingRecords[i].wi, w);
+            }
+        }
     }
     return radiance;
 }
@@ -401,8 +431,9 @@ int main(int argc, char *argv[]) {
             int sppPerIter = SAMPLES / totalIters;
             int remSPP     = SAMPLES % totalIters;
 
-            int Iw     = (int)(totalIters * 0.3f);   // 前 30% 纯预热
-            float pMax = 0.5f;
+            int Iw      = (int)(totalIters * 0.2f);  // 前 20% 纯预热
+            int rampEnd = (int)(totalIters * 0.6f);  // 20%~60% 线性爬升到 pMax
+            float pMax  = 0.9f;                       // guideProb 最大值 90%
 
             cout << "direct_lighting=" << cfg.direct_lighting << endl;
             cout << "Path Guiding: " << totalIters << " iters, warmup=" << Iw
@@ -413,11 +444,14 @@ int main(int argc, char *argv[]) {
             for (int iter = 0; iter < totalIters; iter++) {
                 int spp = sppPerIter + (iter < remSPP ? 1 : 0);
 
-                // 引导概率（iter 从 0 开始，论文 i 从 1 开始）
+                // 引导概率：预热期=0, 20%~60%线性爬升到pMax, 后40%保持pMax
                 float guideProb = 0;
                 if (iter + 1 > Iw) {
-                    guideProb = pMax * (float)(iter + 1 - Iw)
-                                      / (float)(totalIters - Iw);
+                    if (iter + 1 <= rampEnd)
+                        guideProb = pMax * (float)(iter + 1 - Iw)
+                                          / (float)(rampEnd - Iw);
+                    else
+                        guideProb = pMax;
                 }
 
                 cout << "  iter " << (iter + 1) << "/" << totalIters

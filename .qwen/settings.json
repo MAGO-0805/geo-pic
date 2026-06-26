@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Agent(Explore)"
+      "Agent(Explore)",
+      "Bash(build/pa1 *)"
     ]
   },
   "$version": 4

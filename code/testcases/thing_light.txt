@@ -3,8 +3,8 @@ PerspectiveCamera {
     direction 0 0 -1
     up 0 1 0
     angle 65
-    width 600
-    height 600
+    width 1024
+    height 1024
 }
 
 Lights {
@@ -33,8 +33,8 @@ Materials {
         shininess 5
     }
     Material {
-        diffuseColor 0.62 0.14 0.14
-        specularColor 0.18 0.18 0.18
+        diffuseColor 0.95 0.95 0.95
+        specularColor 0.05 0.05 0.05
         shininess 5
     }
     Material {
@@ -66,7 +66,7 @@ Materials {
         shininess 30
     }
     EmissiveMaterial {
-        emissionColor 9 9 8
+        emissionColor 12 12 10
     }
     EmissiveMaterial {
         emissionColor 5 5 7
@@ -74,7 +74,7 @@ Materials {
 }
 
 Group {
-    numObjects 15
+    numObjects 16
 	MaterialIndex 0
     Plane {
         normal 0 0 1
@@ -91,9 +91,16 @@ Group {
         offset -3
     }
     MaterialIndex 2
-    Plane {
-        normal 0 0 -1
-        offset 3
+    Triangle {
+        vertex0 -2.7 -1.5 -3
+        vertex1 3 -1.5 -3
+        vertex2 3 3 -3
+    }
+    MaterialIndex 2
+    Triangle {
+        vertex0 -2.7 -1.5 -3
+        vertex1 3 3 -3
+        vertex2 -2.7 3 -3
     }
     MaterialIndex 3
     Plane {
@@ -133,27 +140,24 @@ Group {
         center 1.8 -0.4 -2.2
         radius 0.7
     }
-    MaterialIndex 10
-    Sphere {
-        center 0 2.95 -1.5
-        radius 0.3
-    }
-    MaterialIndex 11
-    Sphere {
-        center 0.5 0.5 6.5
-        radius 0.4
-    }
 	MaterialIndex 0
     Sphere {
         center 0.5 0.5 5.5
         radius 0.6
     }
-	MaterialIndex 0
-    Transform {
-        Scale 0.7 0.1 0.7
-        Translate 0 25 -2.5
-        TriangleMesh {
-            obj_file mesh/cube.obj
-        }
+    MaterialIndex 10
+    Sphere {
+        center -2 0.5 -5
+        radius 0.6
+    }
+    MaterialIndex 10
+    Sphere {
+        center -1.5 2.2 -7
+        radius 0.9
+    }
+    MaterialIndex 10
+    Sphere {
+        center -2.5 -0.8 -4
+        radius 0.5
     }
 }
