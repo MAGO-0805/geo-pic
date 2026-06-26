@@ -293,6 +293,58 @@ void GuidingDistribution::finishIteration() {
     _trained = true;
 }
 
+void GuidingDistribution::dumpStats(const char *filename) const {
+    FILE *fp = fopen(filename, "w");
+    if (!fp) return;
+
+    // 元数据
+    fprintf(fp, "# grid: %d %d %d\n", _resX, _resY, _resZ);
+    fprintf(fp, "# bbox_min: %.4f %.4f %.4f\n", _bboxMin.x(), _bboxMin.y(), _bboxMin.z());
+    fprintf(fp, "# bbox_max: %.4f %.4f %.4f\n", _bboxMax.x(), _bboxMax.y(), _bboxMax.z());
+    fprintf(fp, "# theta_bins: %d  phi_bins: %d\n", _thetaBins, _phiBins);
+
+    // 每格总权重（空间分布用）
+    fprintf(fp, "SPATIAL\n");
+    int totalCells = _resX * _resY * _resZ;
+    for (int c = 0; c < totalCells; c++) {
+        int iz = c / (_resY * _resX);
+        int iy = (c % (_resY * _resX)) / _resX;
+        int ix = c % _resX;
+        fprintf(fp, "%d %d %d %.6f\n", ix, iy, iz, _cells[c].totalSum());
+    }
+
+    // 找权重最大的 3 个格子，导出方向直方图
+    int topIdx[3] = {-1, -1, -1};
+    float topW[3] = {0, 0, 0};
+    for (int c = 0; c < totalCells; c++) {
+        float w = _cells[c].totalSum();
+        if (w > topW[0]) { topW[2]=topW[1]; topIdx[2]=topIdx[1];
+                           topW[1]=topW[0]; topIdx[1]=topIdx[0];
+                           topW[0]=w; topIdx[0]=c; }
+        else if (w > topW[1]) { topW[2]=topW[1]; topIdx[2]=topIdx[1];
+                                topW[1]=w; topIdx[1]=c; }
+        else if (w > topW[2]) { topW[2]=w; topIdx[2]=c; }
+    }
+
+    for (int rank = 0; rank < 3 && topIdx[rank] >= 0; rank++) {
+        int c = topIdx[rank];
+        int iz = c / (_resY * _resX);
+        int iy = (c % (_resY * _resX)) / _resX;
+        int ix = c % _resX;
+        const auto &bins = _cells[c].bins();
+        fprintf(fp, "HISTO %d %d %d %d %d %.6f\n",
+                ix, iy, iz, _cells[c].thetaRes(), _cells[c].phiRes(), topW[rank]);
+        for (int ti = 0; ti < _cells[c].thetaRes(); ti++) {
+            for (int pi = 0; pi < _cells[c].phiRes(); pi++) {
+                fprintf(fp, "%.6f%c", bins[ti][pi],
+                        (pi + 1 < _cells[c].phiRes()) ? ' ' : '\n');
+            }
+        }
+    }
+
+    fclose(fp);
+}
+
 // ============================================================================
 // 场景包围盒计算
 // ============================================================================

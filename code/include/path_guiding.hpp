@@ -37,6 +37,12 @@ public:
 
     bool isNormalized() const { return _normalized; }
 
+    // 访问器，供 GuidingDistribution::dumpStats 使用
+    int thetaRes() const { return _thetaBins; }
+    int phiRes()   const { return _phiBins; }
+    float totalSum() const { return _totalSum; }
+    const std::vector<std::vector<float>>& bins() const { return _sum; }
+
 private:
     int _thetaBins, _phiBins;
     std::vector<std::vector<float>> _sum;    // 累积 luminance
@@ -78,6 +84,9 @@ public:
 
     // 一轮迭代结束后调用：合并线程局部数据 → 归一化所有格子
     void finishIteration();
+
+    // 导出当前分布到文件，供可视化
+    void dumpStats(const char *filename) const;
 
     bool isTrained() const { return _trained; }
 

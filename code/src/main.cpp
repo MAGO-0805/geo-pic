@@ -77,7 +77,7 @@ Config loadConfig(const char *path) {
 }
 
 // === 路径追踪参数 ===
-const int SAMPLES = 100;
+const int SAMPLES = 500;
 const int MAX_DEPTH = 10;
 const int RR_DEPTH = 3;
 const float EPSILON = 0.001f;
@@ -477,6 +477,14 @@ int main(int argc, char *argv[]) {
                 }
                 cout << " Done!" << endl;
                 guiding->finishIteration();
+
+                // 导出当前 iter 的分布数据
+                {
+                    char statsFile[256];
+                    snprintf(statsFile, sizeof(statsFile),
+                             "output/pg_stats/pg_iter_%d.txt", iter);
+                    guiding->dumpStats(statsFile);
+                }
             }
 
             // ── 归一化 + gamma ──
