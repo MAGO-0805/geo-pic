@@ -3,8 +3,8 @@ PerspectiveCamera {
     direction 0 0 -1
     up 0 1 0
     angle 65
-    width 1024
-    height 1024
+    width 400
+    height 400
 }
 
 Lights {
@@ -55,7 +55,7 @@ Materials {
     RefractiveMaterial {
         refractiveIndex 1.5
         attenuationColor 1 1 1
-		dispersion 0.2
+		dispersion 0
     }
     ReflectiveMaterial {
         attenuationColor 0.9 0.9 0.9
@@ -66,7 +66,7 @@ Materials {
         shininess 30
     }
     EmissiveMaterial {
-        emissionColor 9 9 9
+        emissionColor 9 9 8
     }
     EmissiveMaterial {
         emissionColor 5 5 7
@@ -74,7 +74,12 @@ Materials {
 }
 
 Group {
-    numObjects 12
+    numObjects 15
+	MaterialIndex 0
+    Plane {
+        normal 0 0 1
+        offset 7
+    }
     MaterialIndex 0
     Plane {
         normal 0 1 0
@@ -131,11 +136,24 @@ Group {
     MaterialIndex 10
     Sphere {
         center 0 2.95 -1.5
-        radius 0.4
+        radius 0.3
     }
     MaterialIndex 11
     Sphere {
-        center 0.5 0.5 6
-        radius 0.5
+        center 0.5 0.5 6.5
+        radius 0.4
+    }
+	MaterialIndex 0
+    Sphere {
+        center 0.5 0.5 5.5
+        radius 0.6
+    }
+	MaterialIndex 0
+    Transform {
+        Scale 0.7 0.1 0.7
+        Translate 0 25 -2.5
+        TriangleMesh {
+            obj_file mesh/cube.obj
+        }
     }
 }

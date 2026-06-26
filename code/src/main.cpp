@@ -16,6 +16,7 @@
 #include "group.hpp"
 #include "light.hpp"
 #include "material.hpp"
+#include "path_guiding.hpp"
 
 #ifdef USE_CUDA
 #include "gpu_render.h"
@@ -33,6 +34,11 @@ struct Config {
     bool use_gamma_correction = true;
     float gamma = 2.2f;
     bool use_fresnel = true;
+    bool use_path_guiding = false;
+    int  path_guiding_iterations = 4;
+    int  path_guiding_grid_res = 8;
+    int  path_guiding_theta_bins = 8;
+    int  path_guiding_phi_bins = 16;
 };
 
 Config loadConfig(const char *path) {
@@ -61,12 +67,17 @@ Config loadConfig(const char *path) {
         if (key == "use_gamma_correction") cfg.use_gamma_correction = (val == "true");
         if (key == "gamma") cfg.gamma = (float)atof(val.c_str());
         if (key == "use_fresnel") cfg.use_fresnel = (val == "true");
+        if (key == "use_path_guiding") cfg.use_path_guiding = (val == "true");
+        if (key == "path_guiding_iterations") cfg.path_guiding_iterations = atoi(val.c_str());
+        if (key == "path_guiding_grid_res") cfg.path_guiding_grid_res = atoi(val.c_str());
+        if (key == "path_guiding_theta_bins") cfg.path_guiding_theta_bins = atoi(val.c_str());
+        if (key == "path_guiding_phi_bins") cfg.path_guiding_phi_bins = atoi(val.c_str());
     }
     return cfg;
 }
 
 // === 路径追踪参数 ===
-const int SAMPLES = 500;
+const int SAMPLES = 64;
 const int MAX_DEPTH = 10;
 const int RR_DEPTH = 3;
 const float EPSILON = 0.001f;
@@ -146,7 +157,8 @@ Vector3f traceWhitted(const Ray &ray, float tmin, Group *scene, SceneParser &par
 
 // === 路径追踪 ===
 Vector3f tracePath(const Ray &firstRay, Group *scene, const Vector3f &bgColor,
-                   const vector<Object3D *> &emissives, const Config &cfg) {
+                   const vector<Object3D *> &emissives, const Config &cfg,
+                   GuidingDistribution *guiding, float guideProb) {
     Vector3f radiance(0, 0, 0);
     Vector3f throughput(1, 1, 1);
     Ray ray = firstRay;
@@ -293,9 +305,35 @@ Vector3f tracePath(const Ray &firstRay, Group *scene, const Vector3f &bgColor,
 
             if (cfg.direct_lighting == "nee") break; // 纯 NEE 模式：不弹射
 
-            brdf->sample(wo, N, randf(), randf(), wi, pdf);
-            if (pdf < 1e-6f) break;
-            throughput = throughput * brdf->eval(wo, wi, N) / pdf;
+            if (guiding && guiding->isTrained() && guideProb > 0) {
+                // MIS between BSDF sampling and path guiding
+                float pdf_bsdf, pdf_guide;
+                if (randf() < guideProb) {
+                    if (!guiding->sample(hitPoint, N, randf(), randf(), wi, pdf_guide)) {
+                        brdf->sample(wo, N, randf(), randf(), wi, pdf_bsdf);
+                        pdf_guide = guiding->pdf(hitPoint, N, wi);
+                    } else {
+                        pdf_bsdf = brdf->pdf(wo, wi, N);
+                    }
+                } else {
+                    brdf->sample(wo, N, randf(), randf(), wi, pdf_bsdf);
+                    pdf_guide = guiding->pdf(hitPoint, N, wi);
+                }
+                pdf = (1.0f - guideProb) * pdf_bsdf + guideProb * pdf_guide;
+                if (pdf < 1e-6f) break;
+                throughput = throughput * brdf->eval(wo, wi, N) / pdf;
+            } else {
+                brdf->sample(wo, N, randf(), randf(), wi, pdf);
+                if (pdf < 1e-6f) break;
+                throughput = throughput * brdf->eval(wo, wi, N) / pdf;
+            }
+
+            // 记录训练数据
+            if (guiding) {
+                float w = std::max(throughput.x(), std::max(throughput.y(), throughput.z()));
+                if (w > 0) guiding->record(hitPoint, N, wi, w);
+            }
+
             nextIOR = AIR_IOR;
         }
         ray = Ray(hitPoint, wi);
@@ -347,22 +385,98 @@ int main(int argc, char *argv[]) {
         }
 #endif
 
-        cout << "direct_lighting=" << cfg.direct_lighting << endl;
-        cout << "Path Tracing " << w << "x" << h << " with " << SAMPLES << " spp...";
-        #pragma omp parallel for schedule(dynamic) if(cfg.use_omp)
-        for (int y = 0; y < h; y++) {
-            for (int x = 0; x < w; x++) {
-                Vector3f color(0, 0, 0);
-                for (int s = 0; s < SAMPLES; s++) {
-                    float jx = randf() - 0.5f, jy = randf() - 0.5f;
-                    color += tracePath(camera->generateRay(Vector2f(x + jx, y + jy)), scene, bg, parser.getEmissives(), cfg);
+        GuidingDistribution *guiding = nullptr;
+        if (cfg.use_path_guiding) {
+            // ── 初始化 ──
+            Vector3f bmin, bmax;
+            GuidingDistribution::computeSceneBounds(scene, bmin, bmax);
+            guiding = new GuidingDistribution(bmin, bmax,
+                                              cfg.path_guiding_grid_res,
+                                              cfg.path_guiding_grid_res,
+                                              cfg.path_guiding_grid_res,
+                                              cfg.path_guiding_theta_bins,
+                                              cfg.path_guiding_phi_bins);
+
+            int totalIters = cfg.path_guiding_iterations;
+            int sppPerIter = SAMPLES / totalIters;
+            int remSPP     = SAMPLES % totalIters;
+
+            int Iw     = (int)(totalIters * 0.3f);   // 前 30% 纯预热
+            float pMax = 0.5f;
+
+            cout << "direct_lighting=" << cfg.direct_lighting << endl;
+            cout << "Path Guiding: " << totalIters << " iters, warmup=" << Iw
+                 << ", grid " << cfg.path_guiding_grid_res << "^3, dir "
+                 << cfg.path_guiding_theta_bins << "x" << cfg.path_guiding_phi_bins << endl;
+
+            // ── 迭代循环 ──
+            for (int iter = 0; iter < totalIters; iter++) {
+                int spp = sppPerIter + (iter < remSPP ? 1 : 0);
+
+                // 引导概率（iter 从 0 开始，论文 i 从 1 开始）
+                float guideProb = 0;
+                if (iter + 1 > Iw) {
+                    guideProb = pMax * (float)(iter + 1 - Iw)
+                                      / (float)(totalIters - Iw);
                 }
-                Vector3f c = color / SAMPLES;
-                outputImage.SetPixel(x, y, cfg.use_gamma_correction ? gammaCorrect(c, cfg.gamma) : c);
+
+                cout << "  iter " << (iter + 1) << "/" << totalIters
+                     << "  spp=" << spp
+                     << "  guideProb=" << guideProb << " ..." << endl;
+
+                #pragma omp parallel for schedule(dynamic) if(cfg.use_omp)
+                for (int y = 0; y < h; y++) {
+                    for (int x = 0; x < w; x++) {
+                        Vector3f color(0, 0, 0);
+                        for (int s = 0; s < spp; s++) {
+                            float jx = randf() - 0.5f, jy = randf() - 0.5f;
+                            color += tracePath(
+                                camera->generateRay(Vector2f(x + jx, y + jy)),
+                                scene, bg, parser.getEmissives(), cfg,
+                                guiding, guideProb);
+                        }
+                        // 所有轮都累加原始颜色
+                        Vector3f prev = outputImage.GetPixel(x, y);
+                        outputImage.SetPixel(x, y, prev + color);
+                    }
+                    if (y % (h / 10) == 0) cout << "." << flush;
+                }
+                cout << " Done!" << endl;
+                guiding->finishIteration();
             }
-            if (y % (h / 10) == 0) cout << "." << flush;
+
+            // ── 归一化 + gamma ──
+            float invTotal = 1.0f / SAMPLES;
+            for (int y = 0; y < h; y++) {
+                for (int x = 0; x < w; x++) {
+                    Vector3f c = outputImage.GetPixel(x, y) * invTotal;
+                    outputImage.SetPixel(x, y,
+                        cfg.use_gamma_correction ? gammaCorrect(c, cfg.gamma) : c);
+                }
+            }
+        } else {
+            // === 无 path guiding：原始单轮渲染 ===
+            cout << "direct_lighting=" << cfg.direct_lighting << endl;
+            cout << "Path Tracing " << w << "x" << h << " with " << SAMPLES << " spp...";
+            #pragma omp parallel for schedule(dynamic) if(cfg.use_omp)
+            for (int y = 0; y < h; y++) {
+                for (int x = 0; x < w; x++) {
+                    Vector3f color(0, 0, 0);
+                    for (int s = 0; s < SAMPLES; s++) {
+                        float jx = randf() - 0.5f, jy = randf() - 0.5f;
+                        color += tracePath(camera->generateRay(Vector2f(x + jx, y + jy)),
+                                           scene, bg, parser.getEmissives(), cfg,
+                                           nullptr, 0);
+                    }
+                    Vector3f c = color / SAMPLES;
+                    outputImage.SetPixel(x, y, cfg.use_gamma_correction ? gammaCorrect(c, cfg.gamma) : c);
+                }
+                if (y % (h / 10) == 0) cout << "." << flush;
+            }
+            cout << " Done!" << endl;
         }
-        cout << " Done!" << endl;
+
+        delete guiding;
     } else {
         cout << "Whitted-Style " << w << "x" << h << "...";
         #pragma omp parallel for schedule(dynamic) if(cfg.use_omp)
