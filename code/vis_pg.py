@@ -109,6 +109,9 @@ def plot_directional(histo, meta, iter_num, rank, outdir):
     cell_cy = bmin[1] + (iy + 0.5) * (bmax[1] - bmin[1]) / gy
     cell_cz = bmin[2] + (iz + 0.5) * (bmax[2] - bmin[2]) / gz
 
+    if iter_num == -1:
+        cell_cx, cell_cy, cell_cz = -0.4, 3.0, -1.4
+
     # theta ∈ [0, π/2] (半径), phi ∈ [0, 2π] (角度)
     theta_edges = np.linspace(0, np.pi / 2, tres + 1)
     phi_edges = np.linspace(0, 2 * np.pi, pres + 1)
@@ -137,7 +140,8 @@ def plot_directional(histo, meta, iter_num, rank, outdir):
     fig.colorbar(pcm, ax=ax, fraction=0.046, pad=0.1, label="accumulated weight")
 
     plt.tight_layout()
-    outpath = os.path.join(outdir, f"iter_{iter_num:02d}_dir_top{rank+1}.png")
+    outpath = os.path.join(outdir, f"iter_{iter_num:02d}_dir_top{rank+1}.png" if isinstance(iter_num, int)
+                            else f"iter_{iter_num}_dir_top{rank+1}.png")
     fig.savefig(outpath, dpi=100)
     plt.close(fig)
     return outpath
@@ -153,7 +157,24 @@ def main():
         print(f"No pg_iter_*.txt files found in {stats_dir}")
         return
 
+    # 先处理初始状态（学习前，均匀分布）
+    # 从第一个 iter 文件取 grid/dir 参数，构造均匀直方图作为对比基准
+    if files:
+        meta0, _, _ = parse_file(files[0])
+        tres = meta0.get("theta_bins", 4)
+        pres = meta0.get("phi_bins", 4)
+        gx, gy, gz = meta0["grid"]
+        dummy = np.ones((tres, pres))
+        dummy_histo = (gx // 2, gy // 2, gz // 2, tres, pres, 0.0, dummy)
+        f2 = plot_directional(dummy_histo, meta0, -1, 0, outdir)
+        print(f"  {f2} - uniform baseline (before any learning)")
+
+    cnt = 0
     for fp in files:
+        if cnt % 10 != 0:
+            cnt += 1
+            continue
+        cnt += 1
         m = re.search(r"pg_iter_(\d+)", fp)
         iter_num = int(m.group(1)) if m else 0
         print(f"Processing iter {iter_num} ...")

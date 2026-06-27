@@ -440,6 +440,9 @@ int main(int argc, char *argv[]) {
                  << ", grid " << cfg.path_guiding_grid_res << "^3, dir "
                  << cfg.path_guiding_theta_bins << "x" << cfg.path_guiding_phi_bins << endl;
 
+            // 导出学习前的初始状态（全零直方图）
+            guiding->dumpStats("output/pg_stats/pg_iter_init.txt");
+
             // ── 迭代循环 ──
             for (int iter = 0; iter < totalIters; iter++) {
                 int spp = sppPerIter + (iter < remSPP ? 1 : 0);

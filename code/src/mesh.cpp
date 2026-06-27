@@ -57,20 +57,32 @@ Mesh::Mesh(const char *filename, Material *material) : Object3D(material) {
             if (line.find(bslash) != std::string::npos) {
                 std::replace(line.begin(), line.end(), bslash, space);
                 std::stringstream facess(line);
-                TriangleIndex trig;
                 facess >> tok;
-                for (int ii = 0; ii < 3; ii++) {
-                    facess >> trig[ii] >> texID;
-                    trig[ii]--;
+                std::vector<int> vids;
+                int vid, tid;
+                while (facess >> vid >> tid) {
+                    vids.push_back(vid - 1);
                 }
-                t.push_back(trig);
+                for (int ii = 1; ii + 1 < (int)vids.size(); ii++) {
+                    TriangleIndex trig;
+                    trig[0] = vids[0];
+                    trig[1] = vids[ii];
+                    trig[2] = vids[ii + 1];
+                    t.push_back(trig);
+                }
             } else {
-                TriangleIndex trig;
-                for (int ii = 0; ii < 3; ii++) {
-                    ss >> trig[ii];
-                    trig[ii]--;
+                std::vector<int> vids;
+                int vid;
+                while (ss >> vid) {
+                    vids.push_back(vid - 1);
                 }
-                t.push_back(trig);
+                for (int ii = 1; ii + 1 < (int)vids.size(); ii++) {
+                    TriangleIndex trig;
+                    trig[0] = vids[0];
+                    trig[1] = vids[ii];
+                    trig[2] = vids[ii + 1];
+                    t.push_back(trig);
+                }
             }
         } else if (tok == texTok) {
             Vector2f texcoord;
