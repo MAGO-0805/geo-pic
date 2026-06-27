@@ -3,6 +3,7 @@
 姓名：孙晨翔
 班级：计41
 学号：2024010679
+**PS：大作业文档基础功能要求的两处对比分析放在第五部分了**
 ___
 
 ## 一、功能列表
@@ -108,9 +109,243 @@ while stack:
     <img src="report_pic/111.bmp" style="width: 100%; height: 100%; object-fit: cover;">
   </div>
   <div style="aspect-ratio: 1 / 1; overflow: hidden;">
-    <img src="report_pic/pg_on_500.bmp" style="width: 100%; height: 100%; object-fit: cover;">
+    <img src="report_pic/222.bmp" style="width: 100%; height: 100%; object-fit: cover;">
   </div>
 </div>
 
 - 加速前：213s
-- 加速后：
+- 加速后：4s
+- Speedup = 53 倍
+
+相同配置，开启包围盒加速后，渲染速度快了53倍！
+
+以上为速度测试，下图为更多复杂网格图形的效果展示：
+<img src="report_pic/pot_cpu.bmp" style="width: 50%; height: 50%;">
+
+### 3、基于CUDA的加速
+
+#### 哪些地方能加速，怎么加速
+
+路径追踪的加速空间非常大，每个像素完全独立，像素 A 的着色与像素 B 没任何关系。这非常适合 GPU 计算，几千个核同时跑，一个线程算一个像素。
+
+但 CPU 和 GPU 的内存是隔离的。要把场景搬进显存，必须先把面向对象的场景图（Group 套 Transform 套 Mesh 套一堆 Triangle）拍扁成无指针的平面数组，**这一步极其困难，稍有差错就会丢失数据，或者段错误。**
+
+具体来说，CPU 端 C++ 的 `vector`、`map`、虚函数表、`Object3D*` 指针这些在 GPU 上全都不存在。必须把每个几何体的全部字段展开成一个纯结构体，用 `cudaMalloc` 在显存上分配，然后 `cudaMemcpy` 拷过去。下面展示了转换前后的数据形态：
+
+```
+CPU 端 (面向对象)                    GPU 端 (扁平数组)
+Group                               GPUScene {
+  ├─ Transform { matrix }              spheres[i] = {cx,cy,cz,r,mat_id}
+  │   └─ Mesh {                        triangles[i] = {v0..v2, n0..n2, mat_id}
+  │         v[]  ← 顶点                  materials[i] = {kd,F0,atten,ior,...}
+  │         t[]  ← 三角索引              tri_bvh[]   = {bmin,bmax,left,right}
+  │         n[]  ← 法向                  sphere_bvh[]
+  │       }                           }
+  ├─ Sphere { center, radius }
+  └─ Plane { normal, d }
+```
+
+拍扁之后，所有三角面无非就是一个大数组，所有球体也是，所有材质也是，全部拷进 device memory，kernel 直接拿下标访问。BVH 同样扁平化上传，遍历靠 while 循环 + 线程本地小栈，不需要递归也不想用递归。
+
+另一个关键点是随机数。GPU 上没法用 `std::mt19937`，每条光线上百次随机采样，每个线程自己维护一个独立的随机状态。这里用了 PCG 哈希，输入 thread 位置和采样序号，输出 [0,1) 均匀分布，周期足够长不会出现多线程撞种子的问题。
+
+#### 代码实现
+
+**展平**。`flattenScene` 函数遍历场景图。每遇到 Transform 就把它的逆矩阵累积进来，遇到几何体就用累积矩阵把顶点变换到世界空间，填进对应的扁平数组。以球体为例：
+
+```cpp
+// Transform: multiply into accInv
+Matrix4f M = accInv.inverse();
+Vector3f c = (M * Vector4f(s->getCenter(), 1)).xyz();
+float sx = M.getCol(0).xyz().length();  // handle non-uniform scale
+out.spheres.push_back({c.x(), c.y(), c.z(), s->getRadius() * sx, matId});
+```
+
+对 Mesh 则遍历所有三角面，顶点用 `accInv.inverse()` 变换，法向用 `accInv.transposed()` 变换（逆矩阵的转置保证法向正确）。材质统一编号，用一个 `map<Material*, int>` 记录 CPU 指针到 GPU 下标的映射，消除此后所有虚函数调用。展平结束后，为三角面和球体各自建一棵 CPU BVH，按 BVH 的 primitive 排列顺序重排对应的数组（保证同一叶节点内的 primitive 在内存中是连续的），然后序列化节点数组一并上传。
+
+**kernel 调度**。每个 CUDA thread 算一个像素：
+
+```cpp
+dim3 block(16, 16);                        // 256 threads/block
+dim3 grid((w + 15) / 16, (h + 15) / 16);  // 铺满全图
+path_trace_kernel<<<grid, block>>>(d_spheres, nSpheres, d_tris, nTris,
+    d_sphereBVH, d_triBVH, d_mats, nEm, d_emIdx,
+    scene.cam, bg_r, bg_g, bg_b, d_output, samples, mode, useSmooth, useFresnel);
+```
+
+kernel 内通过 `blockIdx × 16 + threadIdx` 得到像素坐标 `(px, py)`。每个像素跑指定 spp，每个采样用 PCG 哈希生成两个 jitter 值偏移子像素位置，然后从相机参数生成世界空间光线。
+
+**路径追踪循环**。跟 CPU 版本的渲染逻辑完全一致，只不过把串行的"for 每个像素、for 每个采样"变成了 GPU 的几千个线程各算各的并行计算，从而获得了数十倍的加速。核心循环伪代码：
+
+```
+radiance = 0; throughput = (1,1,1)
+for depth = 0..9:
+    if depth > 3: RussianRoulette()
+    hit = BVH_intersect(ray)
+    if 未命中: radiance += throughput × bg; break
+    if 命中发光体:
+        if depth==0 或 上一跳是delta: radiance += throughput × emission
+        else: radiance += MIS_BRDF(上一跳信息) // BRDF侧MIS
+        break
+    if 非delta:
+        for each emissiveSphere:  // NEE
+            lwi = normalize(lp - hitPoint)
+            if shadowRay未遮挡:
+                pdf_light = pdf_area × dist² / cosLight
+                pdf_brdf = BRDF_pdf(wo, lwi)
+                mis_w = pdf_light² / (pdf_light² + pdf_brdf²)
+                radiance += throughput × emission × BRDF × mis_w / pdf_light
+        保存当前顶点信息给下一跳MIS用
+    采样下一方向 wi:
+        漫反射: cosine_weighted_hemisphere
+        镜面: reflectDirection
+        折射: refractDirection 
+        glossy: 按亮度比选漫反射/GGX lobe
+    throughput *= BRDF(wo,wi) / pdf
+    ray = {hitPoint, wi}
+output[py][px] = radiance / samples
+```
+
+所有采样跑完后除以 spp 得到最终颜色。kernel 全结束后 `cudaDeviceSynchronize()` 等所有线程跑完，`cudaMemcpy` 拷回主机内存保存为图片即可。
+
+**加速效果**
+
+
+## 三、最终渲染图
+
+## 四、已验收功能
+
+### 1、色散
+
+白光穿过棱镜会散成彩虹，这是因为不同的折射率对不同的波长光不同。在路径追踪里模拟色散也不困难：当光线射入一个有色散属性的折射材质时，不是老老实实折射一根光线，而是随机给这条光线"染色"——按 1/3 概率选 R、G、B 中的某一个通道，用这个通道对应的折射率（基础折射率 + 该通道的偏移量-可调整的参数）来算折射方向。选完之后，其他两个通道的 throughput 直接清零，乘 3 来保证能量守恒。当然，代价就是每个通道只能得到1/3的样本，更难收敛，容易出现彩色噪点。
+
+代码上很简单：在 `tracePath` 的折射分支里，如果材质开了色散且光线正在进入介质，摇一个随机数决定通道，用偏移后的折射率算 `eta`，然后清零另两个通道：
+
+```cpp
+float r = randf(); int ch;
+if      (r < 1.0/3.0) { ch=0; ior = baseIOR - disp*0.5; }
+else if (r < 2.0/3.0) { ch=1; ior = baseIOR; }
+else                   { ch=2; ior = baseIOR + disp*0.5; }
+throughput *= Vector3f(ch==0?atten.x:0, ch==1?atten.y:0, ch==2?atten.z:0) * 3.0;
+```
+
+**效果对比（左图未开启色散，右图开启色散）**
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; width: 100%;">
+  <div style="aspect-ratio: 1 / 1; overflow: hidden;">
+    <img src="report_pic/original_dp.bmp" style="width: 100%; height: 100%; object-fit: cover;">
+  </div>
+  <div style="aspect-ratio: 1 / 1; overflow: hidden;">
+    <img src="report_pic/3_dp.bmp" style="width: 100%; height: 100%; object-fit: cover;">
+  </div>
+</div>
+
+### 2、MIS（多重重要性采样）
+
+路径追踪里有两套互补的采样策略：NEE 直接从光源表面采样、BRDF 从材质的高概率方向采样。当光源小而远时，NEE 很准但 BRDF 很难恰好弹到；当光源大而近时，BRDF 随手一弹就能命中。MIS 把两路的估计量加权混合：权值用幂启发式，各取 PDF 的平方除以 PDF 平方和。这样哪路更有效，它的权就自动更大，最终结果不会比单走任何一路差。
+
+实现中，非 delta 表面每次弹射都做两件事：NEE 阶段采发光体表面，出来一个 radiance 估计量，乘以 `pdf_light² / (pdf_light² + pdf_brdf²)`；BRDF 弹射如果下一跳命中发光体，同样用上一跳保存的 BRDF 信息反算一个估计量，乘以 `pdf_brdf² / (pdf_light² + pdf_brdf²)`。两路完全对称，分母相同，保证无偏。
+**效果对比（左、中、右分别为 仅BRDF，仅NEE，MIS）**
+<div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; width: 100%;">
+  <div style="aspect-ratio: 1 / 1; overflow: hidden;">
+    <img src="report_pic/cornell_BRDF.bmp" style="width: 100%; height: 100%; object-fit: cover;">
+  </div>
+  <div style="aspect-ratio: 1 / 1; overflow: hidden;">
+    <img src="report_pic/cornell_NEE.bmp" style="width: 100%; height: 100%; object-fit: cover;">
+  </div>
+  <div style="aspect-ratio: 1 / 1; overflow: hidden;">
+    <img src="report_pic/cornell_MIS.bmp" style="width: 100%; height: 100%; object-fit: cover;">
+  </div>
+</div>
+
+### 3、法向插值
+
+低面数三角网格模型面与面之间会有明显的棱。法向插值不做任何几何修改，只在着色阶段对法向量做文章：三角内部任意点的着色法向 = 三个顶点法向按重心坐标混合。顶点法向由周围各面的面法向取平均得到。这样 低面数的模型也能看起来圆润。
+
+实现分两步。OBJ 加载后在 CPU 端算顶点法向：遍历所有面，面法向取叉积，累加到三个顶点的法向累加器上，最后归一化。渲染时，光线命中三角后，用已有的重心坐标做线性插值：
+
+```
+N_shading = normalize((1-β-γ) * N₀ + β * N₁ + γ * N₂)
+```
+**效果对比（左图未开启，右图开启）**
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; width: 100%;">
+  <div style="aspect-ratio: 1 / 1; overflow: hidden;">
+    <img src="report_pic/square_bunny.bmp" style="width: 100%; height: 100%; object-fit: cover;">
+  </div>
+  <div style="aspect-ratio: 1 / 1; overflow: hidden;">
+    <img src="report_pic/smooth_bunny.bmp" style="width: 100%; height: 100%; object-fit: cover;">
+  </div>
+</div>
+
+
+### 4、伽马校正
+
+显示器不是线性的，路径追踪算出的是线性辐射度值，直接写进图片会被显示器压暗。伽马校正就是写文件前做一次逆运算 `pow(x, 1/gamma)`，显示器的 `pow(x, gamma)` 再压一次，两者抵消，人眼看到正确亮度。
+
+实现是纯后处理，一行代码的事：
+
+```cpp
+powf(c.x(), 1.0f/gamma)  // 逐通道
+```
+**效果对比（左、中、右分别为 gamma = 1.0 1.5 2.2）**
+<div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; width: 100%;">
+  <div style="aspect-ratio: 1 / 1; overflow: hidden;">
+    <img src="report_pic/cornell_gamma1.0.bmp" style="width: 100%; height: 100%; object-fit: cover;">
+  </div>
+  <div style="aspect-ratio: 1 / 1; overflow: hidden;">
+    <img src="report_pic/cornell_gamma1.5.bmp" style="width: 100%; height: 100%; object-fit: cover;">
+  </div>
+  <div style="aspect-ratio: 1 / 1; overflow: hidden;">
+    <img src="report_pic/cornell_gamma2.2.bmp" style="width: 100%; height: 100%; object-fit: cover;">
+  </div>
+</div>
+
+
+### 5、基于 OpenMP 的 CPU 并行加速
+
+像素之间完全独立，外层 y 循环天然可以并行。OpenMP的 `#pragma omp parallel for schedule(dynamic)` 一行指令让编译器自动把循环切成多段，分给多个 CPU 核。`schedule(dynamic)` 表示动态调度——谁先算完谁领下一段，避免因路径深度不均导致部分核空转。
+
+唯一的坑是随机数生成器。原来的 `randf()` 用全局 `mt19937`，多线程同时读写就是数据竞争。改成 `thread_local` 惰性初始化：每个线程首次调用时用一个原子计数器分配独立种子，创建自己的 `mt19937` 实例，之后各线程完全隔离。开关通过 `use_omp` 控制，关闭时 pragma 被静默忽略，回退单线程。
+
+## 五、基础功能对比要求
+
+### 1、光线追踪 vs 路径追踪
+
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; width: 100%;">
+  <div style="aspect-ratio: 1 / 1; overflow: hidden;">
+    <img src="report_pic/cornell_stage1.bmp" style="width: 100%; height: 100%; object-fit: cover;">
+  </div>
+  <div style="aspect-ratio: 1 / 1; overflow: hidden;">
+    <img src="report_pic/cornell_MIS.bmp" style="width: 100%; height: 100%; object-fit: cover;">
+  </div>
+</div>
+
+肉眼可见的差别有三处：
+
+**噪点**。路径追踪用随机采样估计每个像素的颜色，有限采样数下必然有噪点。Whitted 每一步都是确定性计算——漫反射直接累加所有光源、镜面/折射走解析方向——画面完全干净，这是两者最本质的差异。
+
+**间接光照（color bleeding）**。Cornell 盒的左右墙壁分别是红色和绿色。路径追踪图中，地板上靠近红墙的地方泛着暖红色，靠近绿墙的地方泛着淡绿色，这是漫反射表面之间互相照亮的结果。Whitted 完全没有这个效果，因为在 Whitted 的模型里，光线打到漫反射表面就直接停下来了，只算一次直接光照，不会有后续弹射。红墙的光不可能先弹到地板再弹到人眼里。
+
+**软阴影与面光源表现**。场景中天花板有一个发光球体。路径追踪的 MIS 模式能正确采样面光源上的不同位置，产生自然的软阴影和柔和照明过渡。Whitted 使用点光源模型，明暗边界锐利，缺乏真实感。
+
+根本原因是两种算法的光照模型完全不同。Whitted 把光照简化成"直接光 + 镜面反射 + 折射"三个独立通道，光源只能是若干抽象点。路径追踪则忠实模拟了物理方程：每个表面都是潜在的二次光源，光线的每一次弹射都在积分半球上的入射 radiance，最终收敛到全局光照的真实解。
+
+### 2、NEE
+
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; width: 100%;">
+  <div style="aspect-ratio: 1 / 1; overflow: hidden;">
+    <img src="report_pic/cornell_BRDF.bmp" style="width: 100%; height: 100%; object-fit: cover;">
+  </div>
+  <div style="aspect-ratio: 1 / 1; overflow: hidden;">
+    <img src="report_pic/cornell_NEE.bmp" style="width: 100%; height: 100%; object-fit: cover;">
+  </div>
+</div>
+
+**左：纯 BRDF 采样；右：纯 NEE 采样**
+
+相同 spp ，左图噪点明显非常多。
+
+没有 NEE 的时候，路径追踪获取直接光照只靠 BRDF 按余弦分布随机弹射，恰好砸到发光体上。发光体越小，砸中的概率越低。Cornell 盒的天花板光源只有巴掌大一个球，从地板上看过去张角极小——绝大部分 BRDF 采样方向都弹向了黑暗的墙壁，路径白白浪费，贡献为零。反映到图上就是大片噪点，因为相邻像素"运气"差异巨大。
+
+开了 NEE 之后，每条光线每次弹到非 delta 表面时，都主动去对所有发光体表面采一个点，连一条 shadow ray 过去。只要中间没挡、cos 项为正，这笔直接光照就一定有贡献。从图中可以看出，右侧画面的天花板附近、地板、墙壁的亮度分布更均匀、噪点大幅减少，收敛更快
+
+
