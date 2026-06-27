@@ -1,3 +1,5 @@
+// 原创性：课程内容(BVH原理) + 参考PBRT(SAH实现)
+
 #include "bvh.hpp"
 #include <algorithm>
 #include <cstring>

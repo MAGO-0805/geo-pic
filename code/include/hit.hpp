@@ -1,3 +1,4 @@
+// 原创性：PA1基础框架
 #ifndef HIT_H
 #define HIT_H
 

@@ -1,3 +1,4 @@
+// 原创性：PA1基础框架
 #ifndef LIGHT_H
 #define LIGHT_H
 

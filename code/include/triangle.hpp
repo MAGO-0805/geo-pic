@@ -1,3 +1,4 @@
+// 原创性：PA1基础框架(求交) + 独立实现(sampleSurface/getArea)
 #ifndef TRIANGLE_H
 #define TRIANGLE_H
 

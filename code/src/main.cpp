@@ -1,3 +1,5 @@
+// 原创性：PA1基础框架(Whitted/场景解析/求交) + 课程内容(BRDF采样/MIS/NEE/OpenMP) + 独立实现(色散; 伽马校正)
+
 #include <cassert>
 #include <cstdio>
 #include <cstdlib>

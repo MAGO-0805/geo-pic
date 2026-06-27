@@ -1,3 +1,4 @@
+// 参考Path guiding in production (https://doi.org/10.1145/3305366.3328091)
 #ifndef PATH_GUIDING_HPP
 #define PATH_GUIDING_HPP
 

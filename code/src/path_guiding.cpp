@@ -1,3 +1,5 @@
+// 原创性：独立实现，参考论文 Path guiding in production
+
 #include "path_guiding.hpp"
 #include "object3d.hpp"
 #include "group.hpp"

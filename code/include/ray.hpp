@@ -1,3 +1,4 @@
+// 原创性：PA1基础框架
 #ifndef RAY_H
 #define RAY_H
 

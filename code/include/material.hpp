@@ -1,3 +1,4 @@
+// 原创性：PA1基础框架 + 课程内容(BRDF接口) + 独立实现(Glossy/Emissive材质)
 #ifndef MATERIAL_H
 #define MATERIAL_H
 

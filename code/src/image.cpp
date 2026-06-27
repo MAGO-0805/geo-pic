@@ -1,3 +1,5 @@
+// 原创性：PA1基础框架
+
 #include <cstdlib>
 #include <cstdio>
 #include <cstring>

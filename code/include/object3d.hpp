@@ -1,3 +1,4 @@
+// 原创性：PA1基础框架 + 独立实现(sampleSurface/getArea)
 #ifndef OBJECT3D_H
 #define OBJECT3D_H
 

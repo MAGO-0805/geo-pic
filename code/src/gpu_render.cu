@@ -1,3 +1,4 @@
+// 原创性：课程内容(路径追踪逻辑) + 参考NVIDIA CUDA Programming Guide(CUDA并行框架) + PBRT(BVH遍历)
 #include "gpu_render.h"
 #include "scene_parser.hpp"
 #include "camera.hpp"

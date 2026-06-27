@@ -1,3 +1,4 @@
+// 原创性：课程内容
 #ifndef BRDF_H
 #define BRDF_H
 

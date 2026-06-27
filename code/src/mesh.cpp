@@ -1,3 +1,5 @@
+// 原创性：PA1基础框架(OBJ解析/求交) + 课程内容+PBRT(BVH加速) + 独立实现(四边形面/负数索引)
+
 #include "mesh.hpp"
 #include <fstream>
 #include <iostream>
@@ -59,6 +61,7 @@ Mesh::Mesh(const char *filename, Material *material) : Object3D(material) {
                 std::vector<int> vids;
                 int vid, tid;
                 while (facess >> vid >> tid) {
+                    if (vid < 0) vid = (int)v.size() + vid + 1;
                     vids.push_back(vid - 1);
                 }
                 for (int ii = 1; ii + 1 < (int)vids.size(); ii++) {
@@ -72,6 +75,7 @@ Mesh::Mesh(const char *filename, Material *material) : Object3D(material) {
                 std::vector<int> vids;
                 int vid;
                 while (ss >> vid) {
+                    if (vid < 0) vid = (int)v.size() + vid + 1;
                     vids.push_back(vid - 1);
                 }
                 for (int ii = 1; ii + 1 < (int)vids.size(); ii++) {

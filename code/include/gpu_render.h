@@ -1,3 +1,4 @@
+// 原创性：参考NVIDIA CUDA Programming Guide(CUDA数据结构设计)
 #ifndef GPU_RENDER_H
 #define GPU_RENDER_H
 
