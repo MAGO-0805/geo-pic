@@ -55,7 +55,7 @@ Materials {
     RefractiveMaterial {
         refractiveIndex 1.5
         attenuationColor 1 1 1
-		dispersion 0.2
+		dispersion 0.0
     }
     ReflectiveMaterial {
         attenuationColor 0.9 0.9 0.9
@@ -66,7 +66,7 @@ Materials {
         shininess 30
     }
     EmissiveMaterial {
-        emissionColor 19 19 19
+        emissionColor 7 6.0 4.6
     }
     EmissiveMaterial {
         emissionColor 5 5 7
@@ -74,7 +74,7 @@ Materials {
 }
 
 Group {
-    numObjects 11
+    numObjects 12
     MaterialIndex 0
     Plane {
         normal 0 1 0
@@ -131,6 +131,11 @@ Group {
     MaterialIndex 10
     Sphere {
         center 0 2.95 -1.5
-        radius 0.02
+        radius 0.4
+    }
+    MaterialIndex 11
+    Sphere {
+        center 0.5 0.5 6
+        radius 0.5
     }
 }

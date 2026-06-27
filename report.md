@@ -122,7 +122,7 @@ while stack:
 以上为速度测试，下图为更多复杂网格图形的效果展示：
 <img src="report_pic/pot_cpu.bmp" style="width: 50%; height: 50%;">
 
-### 3、基于CUDA的加速
+### 3、基于CUDA的GPU加速
 
 #### 哪些地方能加速，怎么加速
 
@@ -209,9 +209,23 @@ output[py][px] = radiance / samples
 所有采样跑完后除以 spp 得到最终颜色。kernel 全结束后 `cudaDeviceSynchronize()` 等所有线程跑完，`cudaMemcpy` 拷回主机内存保存为图片即可。
 
 **加速效果**
+**1024*1024分辨率，100SPP，左图只开OpenMP加速，右图开CUDA加速**
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; width: 100%;">
+  <div style="aspect-ratio: 1 / 1; overflow: hidden;">
+    <img src="report_pic/cornell_cpu_100spp.bmp" style="width: 100%; height: 100%; object-fit: cover;">
+  </div>
+  <div style="aspect-ratio: 1 / 1; overflow: hidden;">
+    <img src="report_pic/cornell_gpu_100spp.bmp" style="width: 100%; height: 100%; object-fit: cover;">
+  </div>
+</div>
 
+- CPU: 67s
+- GPU: 2s
+- Speedup = 33.5 倍
 
 ## 三、最终渲染图
+
+
 
 ## 四、已验收功能
 
@@ -306,6 +320,12 @@ powf(c.x(), 1.0f/gamma)  // 逐通道
 
 唯一的坑是随机数生成器。原来的 `randf()` 用全局 `mt19937`，多线程同时读写就是数据竞争。改成 `thread_local` 惰性初始化：每个线程首次调用时用一个原子计数器分配独立种子，创建自己的 `mt19937` 实例，之后各线程完全隔离。开关通过 `use_omp` 控制，关闭时 pragma 被静默忽略，回退单线程。
 
+对同样的cornell测例渲染，1024*1024分辨率，100spp，渲染速度对比如下：
+- 加速前：519s
+- 加速后：64s
+- SpeedUp：8.1 倍
+
+
 ## 五、基础功能对比要求
 
 ### 1、光线追踪 vs 路径追踪
@@ -348,4 +368,13 @@ powf(c.x(), 1.0f/gamma)  // 逐通道
 
 开了 NEE 之后，每条光线每次弹到非 delta 表面时，都主动去对所有发光体表面采一个点，连一条 shadow ray 过去。只要中间没挡、cos 项为正，这笔直接光照就一定有贡献。从图中可以看出，右侧画面的天花板附近、地板、墙壁的亮度分布更均匀、噪点大幅减少，收敛更快
 
-
+### 3、glossy 材质
+基础要求，但是好像没有单独展示过，这里直接展示材质效果，左图roughness = 0.15，右图roughness = 0.3
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; width: 100%;">
+  <div style="aspect-ratio: 1 / 1; overflow: hidden;">
+    <img src="report_pic/super_glossy.bmp" style="width: 100%; height: 100%; object-fit: cover;">
+  </div>
+  <div style="aspect-ratio: 1 / 1; overflow: hidden;">
+    <img src="report_pic/super_glossy0.3.bmp" style="width: 100%; height: 100%; object-fit: cover;">
+  </div>
+</div>
