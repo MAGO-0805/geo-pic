@@ -1,4 +1,4 @@
-// 原创性：课程内容(BVH原理) + 参考PBRT(SAH实现)
+// 原创性：课程内容 + 参考PBRT(SAH实现)
 #ifndef BVH_HPP
 #define BVH_HPP
 

@@ -58,9 +58,15 @@ Mesh::Mesh(const char *filename, Material *material) : Object3D(material) {
                 std::replace(line.begin(), line.end(), bslash, space);
                 std::stringstream facess(line);
                 facess >> tok;
+                std::vector<int> nums;
+                int n;
+                while (facess >> n) nums.push_back(n);
+                // 检测格式: v/vt (stride=2) 或 v/vt/vn (stride=3)
+                int stride = 2;
+                if ((int)nums.size() >= 9 && (int)nums.size() % 3 == 0) stride = 3;
                 std::vector<int> vids;
-                int vid, tid;
-                while (facess >> vid >> tid) {
+                for (int i = 0; i < (int)nums.size(); i += stride) {
+                    int vid = nums[i];
                     if (vid < 0) vid = (int)v.size() + vid + 1;
                     vids.push_back(vid - 1);
                 }
