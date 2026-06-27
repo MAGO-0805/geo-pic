@@ -77,7 +77,7 @@ Config loadConfig(const char *path) {
 }
 
 // === 路径追踪参数 ===
-const int SAMPLES = 500;
+const int SAMPLES = 5000;
 const int MAX_DEPTH = 10;
 const int RR_DEPTH = 3;
 const float EPSILON = 0.001f;
