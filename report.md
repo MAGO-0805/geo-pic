@@ -102,4 +102,15 @@ while stack:
 ```
 
 #### 测试效果
-用 cornell 盒 + 三个 head.OBJ（共约 1.5 万三角）测试，BVH 版本 10spp 即可得到正确渲染结果（无全黑全白、像素值均匀分布），CPU 端渲染时间大幅缩短。进一步的速度和正确性对比留给后续系统测试。
+由于没有采用包围盒层次结构的算法对于复杂模型非常慢，用茶壶模型（15K面片），在200*200分辨率下跑10SPP的简短测试，得到的效果和加速比如下：
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; width: 100%;">
+  <div style="aspect-ratio: 1 / 1; overflow: hidden;">
+    <img src="report_pic/111.bmp" style="width: 100%; height: 100%; object-fit: cover;">
+  </div>
+  <div style="aspect-ratio: 1 / 1; overflow: hidden;">
+    <img src="report_pic/pg_on_500.bmp" style="width: 100%; height: 100%; object-fit: cover;">
+  </div>
+</div>
+
+- 加速前：213s
+- 加速后：
