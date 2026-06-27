@@ -12,7 +12,8 @@ SET(PA1_SOURCES
         src/main.cpp
         src/mesh.cpp
         src/scene_parser.cpp
-        src/path_guiding.cpp)
+        src/path_guiding.cpp
+        src/bvh.cpp)
 
 # CUDA 可选编译
 FIND_PACKAGE(CUDA QUIET)

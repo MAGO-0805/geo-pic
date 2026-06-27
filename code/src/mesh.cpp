@@ -7,16 +7,14 @@
 #include <sstream>
 
 bool Mesh::intersect(const Ray &r, Hit &h, float tmin) {
-
-    // Optional: Change this brute force method into a faster one.
     bool result = false;
-    for (int triId = 0; triId < (int) t.size(); ++triId) {
-        TriangleIndex& triIndex = t[triId];
-        Triangle triangle(v[triIndex[0]],
-                          v[triIndex[1]], v[triIndex[2]], material);
+    _bvh.intersect(r, tmin, h.getT(), [&](int triId) {
+        if (triId < 0 || triId >= (int)t.size()) return false;
+        Triangle triangle(v[t[triId][0]], v[t[triId][1]], v[t[triId][2]], material);
         triangle.normal = n[triId];
-        result |= triangle.intersect(r, h, tmin);
-    }
+        if (triangle.intersect(r, h, tmin)) { result = true; return true; }
+        return false;
+    });
     return result;
 }
 
@@ -91,6 +89,7 @@ Mesh::Mesh(const char *filename, Material *material) : Object3D(material) {
         }
     }
     computeNormal();
+    buildBVH();
 
     f.close();
 }
@@ -116,4 +115,31 @@ void Mesh::computeNormal() {
         float len = vn_i.length();
         if (len > 1e-6f) vn_i = vn_i / len;
     }
+}
+
+void Mesh::buildBVH() {
+    int triCount = (int)t.size();
+    if (triCount == 0) return;
+
+    _triCenters.resize(triCount);
+    _triMins.resize(triCount);
+    _triMaxs.resize(triCount);
+
+    for (int i = 0; i < triCount; i++) {
+        Vector3f v0 = v[t[i][0]];
+        Vector3f v1 = v[t[i][1]];
+        Vector3f v2 = v[t[i][2]];
+
+        Vector3f bmin = Vector3f(std::min(std::min(v0.x(), v1.x()), v2.x()),
+                                  std::min(std::min(v0.y(), v1.y()), v2.y()),
+                                  std::min(std::min(v0.z(), v1.z()), v2.z()));
+        Vector3f bmax = Vector3f(std::max(std::max(v0.x(), v1.x()), v2.x()),
+                                  std::max(std::max(v0.y(), v1.y()), v2.y()),
+                                  std::max(std::max(v0.z(), v1.z()), v2.z()));
+        _triCenters[i] = (bmin + bmax) * 0.5f;
+        _triMins[i] = bmin;
+        _triMaxs[i] = bmax;
+    }
+
+    _bvh.build(_triCenters, _triMins, _triMaxs);
 }

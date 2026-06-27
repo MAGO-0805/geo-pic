@@ -4,6 +4,7 @@
 #include <vector>
 #include "object3d.hpp"
 #include "triangle.hpp"
+#include "bvh.hpp"
 #include "Vector2f.h"
 #include "Vector3f.h"
 
@@ -66,6 +67,12 @@ private:
 
     // Normal can be used for light estimation
     void computeNormal();
+    void buildBVH();
+
+    BVH _bvh;
+    std::vector<Vector3f> _triCenters;   // 每个三角的 AABB 中心（BVH 构建用）
+    std::vector<Vector3f> _triMins;
+    std::vector<Vector3f> _triMaxs;
 };
 
 #endif

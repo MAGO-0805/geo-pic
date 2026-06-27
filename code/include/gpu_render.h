@@ -43,11 +43,21 @@ struct GPUCamera {
     int w, h;            // resolution
 };
 
+// === GPU BVH 节点（扁平数组，无指针）===
+struct GPUBVHNode {
+    float bmin_x, bmin_y, bmin_z;
+    float bmax_x, bmax_y, bmax_z;
+    int left;    // 内部: 左子节点 idx；叶: 首个 primitive idx
+    int right;   // 内部: 右子节点 idx；叶: primitive 数量 (正数)
+};
+
 // === 场景展平 ===
 struct GPUScene {
     std::vector<GPUSphere> spheres;
     std::vector<GPUTriangle> triangles;
     std::vector<GPUMaterial> materials;
+    std::vector<GPUBVHNode> tri_bvh;    // triangle BVH
+    std::vector<GPUBVHNode> sphere_bvh; // sphere BVH
     GPUCamera cam;
     float bg_r, bg_g, bg_b;
 };

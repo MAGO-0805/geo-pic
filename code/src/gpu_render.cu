@@ -8,6 +8,7 @@
 #include "transform.hpp"
 #include "material.hpp"
 #include "plane.hpp"
+#include "bvh.hpp"
 #include <cuda_runtime.h>
 #include <cmath>
 #include <cfloat>
@@ -177,6 +178,74 @@ GPUScene flattenScene(SceneParser &parser, Group *rootGroup) {
     Vector3f bg = parser.getBackgroundColor();
     out.bg_r = bg.x(); out.bg_g = bg.y(); out.bg_b = bg.z();
 
+    // === 构建 GPU BVH ===
+    if (!out.triangles.empty()) {
+        int nTri = (int)out.triangles.size();
+        std::vector<Vector3f> centers(nTri), mins(nTri), maxs(nTri);
+        for (int i = 0; i < nTri; i++) {
+            const auto &tr = out.triangles[i];
+            mins[i] = Vector3f(std::min(std::min(tr.v0x,tr.v1x),tr.v2x),
+                               std::min(std::min(tr.v0y,tr.v1y),tr.v2y),
+                               std::min(std::min(tr.v0z,tr.v1z),tr.v2z));
+            maxs[i] = Vector3f(std::max(std::max(tr.v0x,tr.v1x),tr.v2x),
+                               std::max(std::max(tr.v0y,tr.v1y),tr.v2y),
+                               std::max(std::max(tr.v0z,tr.v1z),tr.v2z));
+            centers[i] = (mins[i] + maxs[i]) * 0.5f;
+        }
+        BVH cpuBVH;
+        cpuBVH.build(centers, mins, maxs);
+        // 按 BVH 顺序重排 triangle 数组
+        const auto &perm = cpuBVH.getPrimIndices();
+        std::vector<GPUTriangle> reordered(nTri);
+        for (int i = 0; i < nTri; i++) reordered[i] = out.triangles[perm[i]];
+        out.triangles.swap(reordered);
+        // 序列化
+        const auto &nodes = cpuBVH.getNodes();
+        for (const auto &n : nodes) {
+            GPUBVHNode gn;
+            gn.bmin_x = n.bbox_min.x(); gn.bmin_y = n.bbox_min.y(); gn.bmin_z = n.bbox_min.z();
+            gn.bmax_x = n.bbox_max.x(); gn.bmax_y = n.bbox_max.y(); gn.bmax_z = n.bbox_max.z();
+            if (n.right <= 0) {
+                gn.left  = -(n.left + 1); gn.right = -n.right;
+            } else {
+                gn.left  = n.left; gn.right = n.right;
+            }
+            out.tri_bvh.push_back(gn);
+        }
+    }
+    if (!out.spheres.empty()) {
+        int nSph = (int)out.spheres.size();
+        std::vector<Vector3f> centers(nSph), mins(nSph), maxs(nSph);
+        for (int i = 0; i < nSph; i++) {
+            centers[i] = Vector3f(out.spheres[i].cx, out.spheres[i].cy, out.spheres[i].cz);
+            float r = out.spheres[i].r;
+            mins[i] = centers[i] - Vector3f(r, r, r);
+            maxs[i] = centers[i] + Vector3f(r, r, r);
+        }
+        BVH cpuBVH;
+        cpuBVH.build(centers, mins, maxs);
+        // 按 BVH 顺序重排 sphere 数组
+        const auto &perm = cpuBVH.getPrimIndices();
+        std::vector<GPUSphere> reordered(nSph);
+        for (int i = 0; i < nSph; i++) reordered[i] = out.spheres[perm[i]];
+        out.spheres.swap(reordered);
+        // 序列化
+        const auto &nodes = cpuBVH.getNodes();
+        for (const auto &n : nodes) {
+            GPUBVHNode gn;
+            gn.bmin_x = n.bbox_min.x(); gn.bmin_y = n.bbox_min.y(); gn.bmin_z = n.bbox_min.z();
+            gn.bmax_x = n.bbox_max.x(); gn.bmax_y = n.bbox_max.y(); gn.bmax_z = n.bbox_max.z();
+            if (n.right <= 0) {
+                gn.left  = -(n.left + 1);
+                gn.right = -n.right;
+            } else {
+                gn.left  = n.left;
+                gn.right = n.right;
+            }
+            out.sphere_bvh.push_back(gn);
+        }
+    }
+
     return out;
 }
 
@@ -249,22 +318,85 @@ __device__ bool gpu_intersect_triangle(
     return false;
 }
 
+// GPU BVH AABB test
+__device__ bool gpu_bbox_test(
+    float ox,float oy,float oz, float dx,float dy,float dz,
+    float bmin_x,float bmin_y,float bmin_z,
+    float bmax_x,float bmax_y,float bmax_z,
+    float tmin, float tmax)
+{
+    float t0=tmin, t1=tmax;
+    float inv, tNear, tFar;
+    inv=1.0f/dx; tNear=(bmin_x-ox)*inv; tFar=(bmax_x-ox)*inv;
+    if(tNear>tFar){float tmp=tNear;tNear=tFar;tFar=tmp;}
+    t0=tNear>t0?tNear:t0; t1=tFar<t1?tFar:t1; if(t0>t1)return false;
+    inv=1.0f/dy; tNear=(bmin_y-oy)*inv; tFar=(bmax_y-oy)*inv;
+    if(tNear>tFar){float tmp=tNear;tNear=tFar;tFar=tmp;}
+    t0=tNear>t0?tNear:t0; t1=tFar<t1?tFar:t1; if(t0>t1)return false;
+    inv=1.0f/dz; tNear=(bmin_z-oz)*inv; tFar=(bmax_z-oz)*inv;
+    if(tNear>tFar){float tmp=tNear;tNear=tFar;tFar=tmp;}
+    t0=tNear>t0?tNear:t0; t1=tFar<t1?tFar:t1; if(t0>t1)return false;
+    return true;
+}
+
 __device__ bool gpu_scene_intersect(
     const GPUSphere*spheres,int nS,const GPUTriangle*tris,int nT,
+    const GPUBVHNode*sphereBVH,const GPUBVHNode*triBVH,
     float ox,float oy,float oz,float dx,float dy,float dz,
-    float tmin,float &t,float &nx,float &ny,float &nz,int &mid, int useSmooth) {
+    float tmin,float &t,float &nx,float &ny,float &nz,int &mid, int useSmooth)
+{
     bool hit=false;t=1e38f;
-    for(int i=0;i<nS;i++){
-        float hnx,hny,hnz;
-        if(gpu_intersect_sphere(ox,oy,oz,dx,dy,dz,spheres[i].cx,spheres[i].cy,spheres[i].cz,spheres[i].r,tmin,t,hnx,hny,hnz))
-            {nx=hnx;ny=hny;nz=hnz;mid=spheres[i].mat_id;hit=true;}
+
+    // Sphere BVH
+    if(sphereBVH!=nullptr){
+        int stack[32]; int sp=0; stack[sp++]=0;
+        while(sp>0){
+            int ni=stack[--sp];
+            const GPUBVHNode &node=sphereBVH[ni];
+            if(!gpu_bbox_test(ox,oy,oz,dx,dy,dz,node.bmin_x,node.bmin_y,node.bmin_z,node.bmax_x,node.bmax_y,node.bmax_z,tmin,t))continue;
+            if(node.left<0){ // leaf: left = -(first+1)
+                int first=-(node.left+1);
+                for(int i=0;i<node.right;i++){
+                    const GPUSphere &s=spheres[first+i];
+                    float hnx,hny,hnz;
+                    if(gpu_intersect_sphere(ox,oy,oz,dx,dy,dz,s.cx,s.cy,s.cz,s.r,tmin,t,hnx,hny,hnz))
+                        {nx=hnx;ny=hny;nz=hnz;mid=s.mat_id;hit=true;}
+                }
+            }else{ stack[sp++]=node.right; stack[sp++]=node.left; }
+        }
+    }else{
+        for(int i=0;i<nS;i++){
+            float hnx,hny,hnz;
+            if(gpu_intersect_sphere(ox,oy,oz,dx,dy,dz,spheres[i].cx,spheres[i].cy,spheres[i].cz,spheres[i].r,tmin,t,hnx,hny,hnz))
+                {nx=hnx;ny=hny;nz=hnz;mid=spheres[i].mat_id;hit=true;}
+        }
     }
-    for(int i=0;i<nT;i++){
-        const GPUTriangle&tr=tris[i];float hnx,hny,hnz;
-        if(gpu_intersect_triangle(ox,oy,oz,dx,dy,dz,tr.v0x,tr.v0y,tr.v0z,tr.v1x,tr.v1y,tr.v1z,tr.v2x,tr.v2y,tr.v2z,
-            tr.n0x,tr.n0y,tr.n0z,tr.n1x,tr.n1y,tr.n1z,tr.n2x,tr.n2y,tr.n2z,
-            tmin,t,hnx,hny,hnz, useSmooth))
-            {nx=hnx;ny=hny;nz=hnz;mid=tr.mat_id;hit=true;}
+
+    // Triangle BVH
+    if(triBVH!=nullptr){
+        int stack[64]; int sp=0; stack[sp++]=0;
+        while(sp>0){
+            int ni=stack[--sp];
+            const GPUBVHNode &node=triBVH[ni];
+            if(!gpu_bbox_test(ox,oy,oz,dx,dy,dz,node.bmin_x,node.bmin_y,node.bmin_z,node.bmax_x,node.bmax_y,node.bmax_z,tmin,t))continue;
+            if(node.left<0){ // leaf
+                int first=-(node.left+1);
+                for(int i=0;i<node.right;i++){
+                    const GPUTriangle &tr=tris[first+i];
+                    float hnx,hny,hnz;
+                    if(gpu_intersect_triangle(ox,oy,oz,dx,dy,dz,tr.v0x,tr.v0y,tr.v0z,tr.v1x,tr.v1y,tr.v1z,tr.v2x,tr.v2y,tr.v2z,
+                        tr.n0x,tr.n0y,tr.n0z,tr.n1x,tr.n1y,tr.n1z,tr.n2x,tr.n2y,tr.n2z,tmin,t,hnx,hny,hnz,useSmooth))
+                        {nx=hnx;ny=hny;nz=hnz;mid=tr.mat_id;hit=true;}
+                }
+            }else{ stack[sp++]=node.right; stack[sp++]=node.left; }
+        }
+    }else{
+        for(int i=0;i<nT;i++){
+            const GPUTriangle&tr=tris[i];float hnx,hny,hnz;
+            if(gpu_intersect_triangle(ox,oy,oz,dx,dy,dz,tr.v0x,tr.v0y,tr.v0z,tr.v1x,tr.v1y,tr.v1z,tr.v2x,tr.v2y,tr.v2z,
+                tr.n0x,tr.n0y,tr.n0z,tr.n1x,tr.n1y,tr.n1z,tr.n2x,tr.n2y,tr.n2z,tmin,t,hnx,hny,hnz,useSmooth))
+                {nx=hnx;ny=hny;nz=hnz;mid=tr.mat_id;hit=true;}
+        }
     }
     return hit;
 }
@@ -360,6 +492,7 @@ __device__ float3 gpu_cosine_sample_dir(float r1, float r2, float3 N) {
 __global__ void path_trace_kernel(
     const GPUSphere *spheres, int nSpheres,
     const GPUTriangle *tris, int nTris,
+    const GPUBVHNode *sphereBVH, const GPUBVHNode *triBVH,
     const GPUMaterial *materials,
     int nEmissives, const int *emissiveIndices,
     GPUCamera cam, float bg_r, float bg_g, float bg_b,
@@ -398,7 +531,7 @@ __global__ void path_trace_kernel(
             }
 
             float t, nx, ny, nz; int mid;
-            if (!gpu_scene_intersect(spheres,nSpheres,tris,nTris,o.x,o.y,o.z,d.x,d.y,d.z,EPS_GPU,t,nx,ny,nz,mid,useSmooth)) {
+            if (!gpu_scene_intersect(spheres,nSpheres,tris,nTris,sphereBVH,triBVH,o.x,o.y,o.z,d.x,d.y,d.z,EPS_GPU,t,nx,ny,nz,mid,useSmooth)) {
                 rsum+=thr.x*bg_r; gsum+=thr.y*bg_g; bsum+=thr.z*bg_b; break;
             }
 
@@ -477,7 +610,7 @@ __global__ void path_trace_kernel(
                     // shadow ray
                     float st, snx,sny,snz; int smid;
                     float maxT = sqrtf(dist2);
-                    if (gpu_scene_intersect(spheres,nSpheres,tris,nTris,hp.x,hp.y,hp.z,lwi.x,lwi.y,lwi.z,EPS_GPU,st,snx,sny,snz,smid,useSmooth)) {
+                    if (gpu_scene_intersect(spheres,nSpheres,tris,nTris,sphereBVH,triBVH,hp.x,hp.y,hp.z,lwi.x,lwi.y,lwi.z,EPS_GPU,st,snx,sny,snz,smid,useSmooth)) {
                         if (materials[smid].type != GPU_EMISSIVE) continue;
                     }
                     // eval BRDF
@@ -625,6 +758,8 @@ void gpuRender(const GPUScene &scene, float *output, int samples, const char *mo
 
     GPUSphere *d_spheres = nullptr;
     GPUTriangle *d_tris = nullptr;
+    GPUBVHNode *d_sphereBVH = nullptr;
+    GPUBVHNode *d_triBVH = nullptr;
     GPUMaterial *d_mats = nullptr;
     float *d_output = nullptr;
 
@@ -633,6 +768,16 @@ void gpuRender(const GPUScene &scene, float *output, int samples, const char *mo
     if (err != cudaSuccess) cout << "cudaMalloc spheres: " << cudaGetErrorString(err) << endl;
     err = cudaMalloc(&d_tris, scene.triangles.size() * sizeof(GPUTriangle));
     if (err != cudaSuccess) cout << "cudaMalloc tris: " << cudaGetErrorString(err) << endl;
+    if (!scene.sphere_bvh.empty()) {
+        err = cudaMalloc(&d_sphereBVH, scene.sphere_bvh.size() * sizeof(GPUBVHNode));
+        if (err != cudaSuccess) cout << "cudaMalloc sphereBVH: " << cudaGetErrorString(err) << endl;
+        cudaMemcpy(d_sphereBVH, scene.sphere_bvh.data(), scene.sphere_bvh.size() * sizeof(GPUBVHNode), cudaMemcpyHostToDevice);
+    }
+    if (!scene.tri_bvh.empty()) {
+        err = cudaMalloc(&d_triBVH, scene.tri_bvh.size() * sizeof(GPUBVHNode));
+        if (err != cudaSuccess) cout << "cudaMalloc triBVH: " << cudaGetErrorString(err) << endl;
+        cudaMemcpy(d_triBVH, scene.tri_bvh.data(), scene.tri_bvh.size() * sizeof(GPUBVHNode), cudaMemcpyHostToDevice);
+    }
     err = cudaMalloc(&d_mats, scene.materials.size() * sizeof(GPUMaterial));
     if (err != cudaSuccess) cout << "cudaMalloc mats: " << cudaGetErrorString(err) << endl;
     err = cudaMalloc(&d_output, w * h * 3 * sizeof(float));
@@ -648,6 +793,7 @@ void gpuRender(const GPUScene &scene, float *output, int samples, const char *mo
     path_trace_kernel<<<grid, block>>>(
         d_spheres, (int)scene.spheres.size(),
         d_tris, (int)scene.triangles.size(),
+        d_sphereBVH, d_triBVH,
         d_mats, nEm, d_emIdx,
         scene.cam,
         scene.bg_r, scene.bg_g, scene.bg_b,
@@ -661,5 +807,7 @@ void gpuRender(const GPUScene &scene, float *output, int samples, const char *mo
     cudaMemcpy(output, d_output, w * h * 3 * sizeof(float), cudaMemcpyDeviceToHost);
 
     cudaFree(d_spheres); cudaFree(d_tris); cudaFree(d_mats); cudaFree(d_output);
+    if (d_sphereBVH) cudaFree(d_sphereBVH);
+    if (d_triBVH) cudaFree(d_triBVH);
     if (d_emIdx) cudaFree(d_emIdx);
 }
