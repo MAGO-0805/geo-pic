@@ -1,0 +1,124 @@
+PerspectiveCamera {
+    center 0 1 4
+    direction 0 -0.12 -1
+    up 0 1 0
+    angle 62
+    width 300
+    height 300
+}
+
+Lights { numLights 0 }
+
+Background { color 0 0 0 }
+
+Materials {
+    numMaterials 11
+    Material {
+        diffuseColor 0.72 0.72 0.72
+        specularColor 0.08 0.08 0.08
+        shininess 5
+    }
+    Material {
+        diffuseColor 0.85 0.85 0.85
+        specularColor 0.08 0.08 0.08
+        shininess 5
+    }
+    Material {
+        diffuseColor 0.78 0.78 0.78
+        specularColor 0.08 0.08 0.08
+        shininess 5
+    }
+    Material {
+        diffuseColor 0.62 0.14 0.14
+        specularColor 0.08 0.08 0.08
+        shininess 5
+    }
+    Material {
+        diffuseColor 0.15 0.62 0.18
+        specularColor 0.08 0.08 0.08
+        shininess 5
+    }
+    Material {
+        diffuseColor 0.72 0.18 0.18
+        specularColor 0.55 0.55 0.55
+        shininess 10
+    }
+    EmissiveMaterial {
+        emissionColor 20 20 20
+    }
+    EmissiveMaterial {
+        emissionColor 5 5 7
+    }
+	GlossyMaterial {
+        diffuseColor 0.05 0.02 0.02
+        specularColor 0.95 0.5 0.35
+        roughness 0.2
+    }
+	GlossyMaterial {
+        diffuseColor 0.12 0.12 0.13
+        specularColor 0.6 0.6 0.65
+        roughness 0.4
+    }
+    Material {
+        diffuseColor 0.85 0.85 0.88
+        specularColor 0.04 0.04 0.05
+        shininess 3
+    }
+}
+
+Group {
+    numObjects 11
+
+    MaterialIndex 0
+    Plane { normal 0 1 0 offset -1.5 }
+
+    MaterialIndex 1
+    Plane { normal 0 -1 0 offset -3 }
+
+    MaterialIndex 2
+    Plane { normal 0 0 -1 offset 3 }
+
+    MaterialIndex 3
+    Plane { normal 1 0 0 offset -3 }
+
+    MaterialIndex 4
+    Plane { normal -1 0 0 offset -3 }
+
+    MaterialIndex 9
+    Transform {
+        Scale 0.01 0.01 0.01
+		YRotate 200
+        Translate -20 -160 -10
+        TriangleMesh { obj_file mesh/teapot.obj }
+    }
+
+	MaterialIndex 8
+    Transform {
+        Scale 5 5 5
+        YRotate -20
+        Translate 0.3 0 -0.07
+        TriangleMesh { obj_file mesh/head.obj }
+    }
+
+    MaterialIndex 6
+    Sphere { center 0 2.95 0 radius 0.4 }
+
+    MaterialIndex 7
+    Sphere { center 0.5 0.5 4.5 radius 0.5 }
+
+    MaterialIndex 0
+    Transform {
+        Scale 0.45 0.05 0.45
+        YRotate 30
+        Translate -1.8 -1.475 -0.3
+        TriangleMesh { obj_file mesh/cube.obj }
+    }
+
+    MaterialIndex 10
+    Transform {
+        Scale 0.8 0.8 0.8
+        YRotate 30
+        Translate -1.8 -1.4 -0.3
+        TriangleMesh { obj_file mesh/dragon.obj }
+    }
+}
