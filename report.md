@@ -46,7 +46,7 @@ ___
 4. **`finishIteration()`**：这轮的路径全部跑完后，把所有直方图归一化。下一轮开始，guide 就可以用来采样了。
 
 #### 测试效果
-<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; width: 100%;">
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; width: 100%; page-break-before: always;">
   <div style="aspect-ratio: 1 / 1; overflow: hidden;">
     <img src="report_pic/pg_off_500.bmp" style="width: 100%; height: 100%; object-fit: cover;">
   </div>
@@ -57,9 +57,14 @@ ___
 唯一的光照从一条缝隙中传来，在同样的迭代轮数下（200SPP），未开启 PG (左图) 的结果明显比开启了PG的结果多出非常多的黑色噪点
 
 另外，为了debug，还写了某一点学到的光照空间分布的可视化图，正好可以用来验证学习的有效性，测例如下：
+
+<div style="page-break-before: always;">
+
 ![alt text](report_pic/tiny_on.bmp)
+
+</div>
 环境非常黑，只有一个极小的发光球体作为光源，从发光球体出发，向镜头走0.04，向左走0.04，向下走0.05，来到可视化数据的采样点，此时，光源在采样点的“右 前 上”方
-<div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; width: 100%;">
+<div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; width: 100%; page-break-before: always;">
   <div style="aspect-ratio: 1 / 1; overflow: hidden;">
     <img src="report_pic/iter_-1_dir_top1.png" style="width: 100%; height: 100%; object-fit: cover;">
   </div>
@@ -104,7 +109,7 @@ while stack:
 
 #### 测试效果
 由于没有采用包围盒层次结构的算法对于复杂模型非常慢，用茶壶模型（15K面片），在200*200分辨率下跑10SPP的简短测试，得到的效果和加速比如下：
-<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; width: 100%;">
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; width: 100%; page-break-before: always;">
   <div style="aspect-ratio: 1 / 1; overflow: hidden;">
     <img src="report_pic/111.bmp" style="width: 100%; height: 100%; object-fit: cover;">
   </div>
@@ -120,7 +125,12 @@ while stack:
 相同配置，开启包围盒加速后，渲染速度快了53倍！
 
 以上为速度测试，下图为更多复杂网格图形的效果展示：
+
+<div style="page-break-before: always;">
+
 <img src="report_pic/pot_cpu.bmp" style="width: 50%; height: 50%;">
+
+</div>
 
 ### 3、基于CUDA的GPU加速
 
@@ -210,7 +220,7 @@ output[py][px] = radiance / samples
 
 **加速效果**
 **1024*1024分辨率，100SPP，左图只开OpenMP加速，右图开CUDA加速**
-<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; width: 100%;">
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; width: 100%; page-break-before: always;">
   <div style="aspect-ratio: 1 / 1; overflow: hidden;">
     <img src="report_pic/cornell_cpu_100spp.bmp" style="width: 100%; height: 100%; object-fit: cover;">
   </div>
@@ -225,6 +235,11 @@ output[py][px] = radiance / samples
 
 ## 三、最终渲染图
 
+<div style="page-break-before: always;">
+
+![alt text](report_pic/final.bmp)
+
+</div>
 
 
 ## 四、已验收功能
@@ -244,7 +259,7 @@ throughput *= Vector3f(ch==0?atten.x:0, ch==1?atten.y:0, ch==2?atten.z:0) * 3.0;
 ```
 
 **效果对比（左图未开启色散，右图开启色散）**
-<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; width: 100%;">
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; width: 100%; page-break-before: always;">
   <div style="aspect-ratio: 1 / 1; overflow: hidden;">
     <img src="report_pic/original_dp.bmp" style="width: 100%; height: 100%; object-fit: cover;">
   </div>
@@ -259,7 +274,7 @@ throughput *= Vector3f(ch==0?atten.x:0, ch==1?atten.y:0, ch==2?atten.z:0) * 3.0;
 
 实现中，非 delta 表面每次弹射都做两件事：NEE 阶段采发光体表面，出来一个 radiance 估计量，乘以 `pdf_light² / (pdf_light² + pdf_brdf²)`；BRDF 弹射如果下一跳命中发光体，同样用上一跳保存的 BRDF 信息反算一个估计量，乘以 `pdf_brdf² / (pdf_light² + pdf_brdf²)`。两路完全对称，分母相同，保证无偏。
 **效果对比（左、中、右分别为 仅BRDF，仅NEE，MIS）**
-<div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; width: 100%;">
+<div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; width: 100%; page-break-before: always;">
   <div style="aspect-ratio: 1 / 1; overflow: hidden;">
     <img src="report_pic/cornell_BRDF.bmp" style="width: 100%; height: 100%; object-fit: cover;">
   </div>
@@ -281,7 +296,7 @@ throughput *= Vector3f(ch==0?atten.x:0, ch==1?atten.y:0, ch==2?atten.z:0) * 3.0;
 N_shading = normalize((1-β-γ) * N₀ + β * N₁ + γ * N₂)
 ```
 **效果对比（左图未开启，右图开启）**
-<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; width: 100%;">
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; width: 100%; page-break-before: always;">
   <div style="aspect-ratio: 1 / 1; overflow: hidden;">
     <img src="report_pic/square_bunny.bmp" style="width: 100%; height: 100%; object-fit: cover;">
   </div>
@@ -301,7 +316,7 @@ N_shading = normalize((1-β-γ) * N₀ + β * N₁ + γ * N₂)
 powf(c.x(), 1.0f/gamma)  // 逐通道
 ```
 **效果对比（左、中、右分别为 gamma = 1.0 1.5 2.2）**
-<div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; width: 100%;">
+<div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; width: 100%; page-break-before: always;">
   <div style="aspect-ratio: 1 / 1; overflow: hidden;">
     <img src="report_pic/cornell_gamma1.0.bmp" style="width: 100%; height: 100%; object-fit: cover;">
   </div>
@@ -330,7 +345,7 @@ powf(c.x(), 1.0f/gamma)  // 逐通道
 
 ### 1、光线追踪 vs 路径追踪
 
-<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; width: 100%;">
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; width: 100%; page-break-before: always;">
   <div style="aspect-ratio: 1 / 1; overflow: hidden;">
     <img src="report_pic/cornell_stage1.bmp" style="width: 100%; height: 100%; object-fit: cover;">
   </div>
@@ -351,7 +366,7 @@ powf(c.x(), 1.0f/gamma)  // 逐通道
 
 ### 2、NEE
 
-<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; width: 100%;">
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; width: 100%; page-break-before: always;">
   <div style="aspect-ratio: 1 / 1; overflow: hidden;">
     <img src="report_pic/cornell_BRDF.bmp" style="width: 100%; height: 100%; object-fit: cover;">
   </div>
@@ -370,7 +385,7 @@ powf(c.x(), 1.0f/gamma)  // 逐通道
 
 ### 3、glossy 材质
 基础要求，但是好像没有单独展示过，这里直接展示材质效果，左图roughness = 0.15，右图roughness = 0.3
-<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; width: 100%;">
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; width: 100%; page-break-before: always;">
   <div style="aspect-ratio: 1 / 1; overflow: hidden;">
     <img src="report_pic/super_glossy.bmp" style="width: 100%; height: 100%; object-fit: cover;">
   </div>
@@ -378,3 +393,11 @@ powf(c.x(), 1.0f/gamma)  // 逐通道
     <img src="report_pic/super_glossy0.3.bmp" style="width: 100%; height: 100%; object-fit: cover;">
   </div>
 </div>
+
+## 六、参考代码说明
+
+- Müller et al., "Practical Path Guiding for Efficient Light-Transport Simulation", SIGGRAPH 2017
+- Pharr, Jakob, Humphreys, "Physically Based Rendering: From Theory to Implementation" (包围盒与层次结构部分)
+- NVIDIA CUDA Programming Guide
+- 课程教学内容（BRDF 采样、BVH 原理、MIS、NEE、OpenMP 并行）
+- PA1 课程框架代码

@@ -1,4 +1,4 @@
-// 原创性：课程内容(BVH原理) + 参考PBRT(SAH实现)
+// 原创性：课程内容(BVH原理) + 参考Physically Based Rendering: From Theory to Implementation
 
 #include "bvh.hpp"
 #include <algorithm>
